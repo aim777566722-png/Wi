@@ -38,7 +38,7 @@ data class MainUiState(
     val isMonitoringActive: Boolean = true,
     val isServiceRunning: Boolean = false,
     val serviceMonitoringState: ServiceMonitoringState = ServiceMonitoringState.STOPPED,
-    val hasLocationPermission: Boolean = false,
+    val hasSsidPermission: Boolean = false,
     val hasNotificationPermission: Boolean = false,
     val lastReadingTime: Long? = null,
     val todayRxBytes: Long = 0L,
@@ -104,9 +104,9 @@ class MainViewModel(
                 recommendation = "عند رصد إعادة التشغيل، ينشئ التطبيق نقطة مرجعية جديدة بصفر بايت بدلاً من احتساب العداد التراكمي كاستهلاك جديد."
             ),
             TechnicalConstraintInfo(
-                title = "اشتراط صلاحية الموقع لقراءة اسم الشبكة (SSID)",
-                description = "بدءاً من Android 8.1 وAndroid 10 فما فوق، يعتبر نظام أندرويد اسم شبكة Wi-Fi معلومة حساسة تتطلب منح صلاحية الموقع الدقيق (ACCESS_FINE_LOCATION).",
-                recommendation = "بدون هذه الصلاحية، يُظهر النظام الاسم كـ <unknown ssid>، وتُسجل القراءات بوضوح كـ 'Wi-Fi عام' دون تخمين مضلل."
+                title = "صلاحيات Android لقراءة اسم الشبكة (SSID)",
+                description = "على Android 13+ يجرّب التطبيق صلاحية الأجهزة القريبة لتجنب طلب الموقع، بينما قد تتطلب الإصدارات الأقدم صلاحية الموقع وتشغيل خدمات الموقع. قد تحجب بعض الأجهزة اسم الشبكة رغم منح الصلاحية.",
+                recommendation = "إذا لم يُرجع النظام الاسم، يسجل التطبيق الشبكة باسم عام بدلاً من تخمين اسم غير مؤكد."
             ),
             TechnicalConstraintInfo(
                 title = "تسجيل فجوة بيانات عند الانقطاع والعودة",
@@ -124,7 +124,7 @@ class MainViewModel(
 
     fun checkWifiStatus() {
         val connectionState = networkDetector.getWifiConnectionState()
-        val hasLoc = networkDetector.hasLocationPermission()
+        val hasSsidPermission = networkDetector.hasSsidPermission()
         val hasNotif = networkDetector.hasNotificationPermission()
 
         _uiState.update {
@@ -133,7 +133,7 @@ class MainViewModel(
                 currentWifiSsid = connectionState.ssid,
                 isSsidConfirmed = connectionState.isSsidConfirmed,
                 connectionNotes = connectionState.notes,
-                hasLocationPermission = hasLoc,
+                hasSsidPermission = hasSsidPermission,
                 hasNotificationPermission = hasNotif
             )
         }
