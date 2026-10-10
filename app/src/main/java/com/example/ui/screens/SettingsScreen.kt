@@ -26,7 +26,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -45,8 +44,7 @@ import com.example.ui.viewmodel.MainUiState
 @Composable
 fun SettingsScreen(
     uiState: MainUiState,
-    onRequestLocationPermission: () -> Unit,
-    onToggleMonitoring: () -> Unit
+    onRequestLocationPermission: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -62,18 +60,15 @@ fun SettingsScreen(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "حالة الصلاحيات، خدمة المراقبة الخلفية المستمرة، والقيود التقنية لنظام Android",
+                text = "حالة الصلاحيات، المراقبة التلقائية في الخلفية، والقيود التقنية لنظام Android",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline
             )
         }
 
-        // بطاقة التحكم في خدمة المراقبة
+        // حالة المراقبة التلقائية (دون زر تشغيل أو إيقاف)
         item {
-            MonitoringControlCard(
-                uiState = uiState,
-                onToggle = onToggleMonitoring
-            )
+            MonitoringControlCard(uiState = uiState)
         }
 
         // بطاقة الصلاحيات
@@ -116,8 +111,7 @@ fun SettingsScreen(
 
 @Composable
 fun MonitoringControlCard(
-    uiState: MainUiState,
-    onToggle: () -> Unit
+    uiState: MainUiState
 ) {
     Card(
         modifier = Modifier
@@ -151,21 +145,17 @@ fun MonitoringControlCard(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (uiState.isMonitoringActive) {
-                                if (uiState.isServiceRunning) "الخدمة تعمل في الخلفية عبر Foreground Service"
-                                else "المراقبة مفعلة وجاهزة للعمل"
-                            } else "المراقبة متوقفة بالكامل",
+                            text = if (uiState.isServiceRunning) {
+                                "الخدمة تعمل في الخلفية عبر Foreground Service"
+                            } else {
+                                "ستبدأ المراقبة تلقائياً عند فتح التطبيق"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline
                         )
                     }
                 }
 
-                Switch(
-                    checked = uiState.isMonitoringActive,
-                    onCheckedChange = { onToggle() },
-                    modifier = Modifier.testTag("monitoring_switch")
-                )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
