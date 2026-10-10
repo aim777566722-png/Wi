@@ -55,12 +55,12 @@ fun HistoryScreen(
         ) {
             Column {
                 Text(
-                    text = "سجل القراءات التاريخي",
+                    text = "سجل جلسات Wi-Fi",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "بيانات حقيقية مسجلة من عدادات النظام دون محاكاة أو بيانات وهمية",
+                    text = "يُحفظ سجل واحد عند انتهاء كل جلسة اتصال بشبكة Wi-Fi",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -88,13 +88,13 @@ fun HistoryScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "لا توجد سجلات محفوظة حتى الآن",
+                        text = "لا توجد جلسات مكتملة حتى الآن",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "التطبيق يلتزم بالنزاهة ولا يعرض بيانات افتراضية وهمية. سيتم حفظ السجلات الحقيقية فور اتصالك بشبكة Wi-Fi وتسجيل القراءات.",
+                        text = "تُجمع القراءات أثناء الاتصال دون إضافتها كسجلات منفصلة. سيظهر سجل واحد يتضمن وقت الجلسة وإجمالي التنزيل والرفع بعد قطع اتصال Wi-Fi.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -105,7 +105,7 @@ fun HistoryScreen(
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("تسجيل قراءة الآن")
+                        Text("تحديث الحالة")
                     }
                 }
             }
@@ -132,7 +132,7 @@ fun HistoryScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "إجمالي السجلات المحفوظة في قاعدة بيانات Room: ${uiState.recentSnapshots.size}",
+                                text = "عدد جلسات Wi-Fi المحفوظة: ${uiState.recentSnapshots.size}",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Medium
                             )
@@ -192,7 +192,7 @@ fun HistoryItemCard(snapshot: DataUsageSnapshotEntity) {
             ) {
                 Column {
                     Text(
-                        text = "الزيادة المحسوبة (Delta)",
+                        text = "استهلاك الجلسة",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline
                     )
