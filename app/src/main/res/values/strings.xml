@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">مراقب استهلاك Wi-Fi</string>
+    <string name="wifi_family_tracker">WiFi Family Tracker</string>
+    <string name="monitoring_active">المراقبة نشطة</string>
+    <string name="monitoring_idle">المراقبة متوقفة مؤقتاً</string>
+    <string name="status_connected">متصل بشبكة Wi-Fi</string>
+    <string name="status_disconnected">غير متصل بـ Wi-Fi</string>
+    <string name="nav_home">الرئيسية</string>
+    <string name="nav_networks">الشبكات</string>
+    <string name="nav_history">السجل</string>
+    <string name="nav_settings">الإعدادات</string>
+</resources>

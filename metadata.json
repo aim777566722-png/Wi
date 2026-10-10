@@ -1,0 +1,6 @@
+{
+  "name": "WiFi Family Tracker",
+  "description": "تطبيق أندرويد أصلي لمراقبة استهلاك البيانات عبر شبكات Wi-Fi وتسجيل الرفع والتنزيل محلياً في قاعدة بيانات Room",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

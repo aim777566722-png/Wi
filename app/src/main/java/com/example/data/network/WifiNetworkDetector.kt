@@ -1,0 +1,196 @@
+package com.example.data.network
+
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.TrafficStats
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
+import android.os.Build
+import android.os.SystemClock
+import androidx.core.content.ContextCompat
+import com.example.data.model.RawTrafficReading
+import com.example.data.model.WifiConnectionState
+
+class WifiNetworkDetector(private val context: Context) {
+
+    private val connectivityManager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private val wifiManager =
+        context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+    private val locationManager =
+        context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+
+    /**
+     * التحقق مما إذا كانت صلاحية الموقع ممنوحة (مطلوبة لقراءة SSID في أندرويد 8.1+)
+     */
+    fun hasLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * التحقق من صلاحية الإشعارات (Android 13+)
+     */
+    fun hasNotificationPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    /**
+     * التحقق مما إذا كانت خدمات الموقع مفعلة بالجهاز (GPS / Network location)
+     */
+    fun isLocationServiceEnabled(): Boolean {
+        val lm = locationManager ?: return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            lm.isLocationEnabled
+        } else {
+            lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                    lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }
+    }
+
+    /**
+     * فحص حالة اتصال Wi-Fi الحالي واستخراج SSID دون تخمين أو تضليل
+     */
+    fun getWifiConnectionState(): WifiConnectionState {
+        val cm = connectivityManager ?: return WifiConnectionState(
+            isConnected = false,
+            ssid = null,
+            isSsidConfirmed = false,
+            notes = "تعذر الوصول إلى خدمة ConnectivityManager"
+        )
+
+        val activeNetwork = cm.activeNetwork ?: return WifiConnectionState(
+            isConnected = false,
+            ssid = null,
+            isSsidConfirmed = false,
+            notes = "لا يوجد اتصال شبكة نشط"
+        )
+
+        val capabilities = cm.getNetworkCapabilities(activeNetwork) ?: return WifiConnectionState(
+            isConnected = false,
+            ssid = null,
+            isSsidConfirmed = false,
+            notes = "لا توجد خصائص شبكة متاحة"
+        )
+
+        val isWifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        if (!isWifi) {
+            return WifiConnectionState(
+                isConnected = false,
+                ssid = null,
+                isSsidConfirmed = false,
+                notes = "الاتصال النشط ليس عبر Wi-Fi"
+            )
+        }
+
+        // الهاتف متصل بـ Wi-Fi؛ الآن نتحقق من صلاحية الموقع لاستخراج اسم الشبكة
+        if (!hasLocationPermission()) {
+            return WifiConnectionState(
+                isConnected = true,
+                ssid = null,
+                isSsidConfirmed = false,
+                notes = "متصل بـ Wi-Fi ولكن تعذر قراءة SSID لعدم منح صلاحية الموقع"
+            )
+        }
+
+        var rawSsid: String? = null
+
+        // استخراج SSID عبر WifiInfo من NetworkCapabilities (Android 10+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val transportInfo = capabilities.transportInfo
+            if (transportInfo is WifiInfo) {
+                rawSsid = transportInfo.ssid
+            }
+        }
+
+        // الطريقة المساندة عبر WifiManager
+        if (rawSsid.isNullOrEmpty() || rawSsid == "<unknown ssid>") {
+            val wifiInfo = wifiManager?.connectionInfo
+            if (wifiInfo != null) {
+                rawSsid = wifiInfo.ssid
+            }
+        }
+
+        // تنظيف الاسم من علامات التنصيص المزدوجة
+        val cleanSsid = rawSsid?.trim('"')
+
+        return if (cleanSsid.isNullOrBlank() || cleanSsid == "<unknown ssid>") {
+            WifiConnectionState(
+                isConnected = true,
+                ssid = null,
+                isSsidConfirmed = false,
+                notes = if (!isLocationServiceEnabled()) {
+                    "متصل بـ Wi-Fi ولكن خدمات الموقع مطفأة بالجهاز"
+                } else {
+                    "متصل بـ Wi-Fi ولكن اسم الشبكة مخفي من قبل نقطة الوصول"
+                }
+            )
+        } else {
+            WifiConnectionState(
+                isConnected = true,
+                ssid = cleanSsid,
+                isSsidConfirmed = true,
+                notes = null
+            )
+        }
+    }
+
+    /**
+     * فحص سريع لحالة Wi-Fi واسم الشبكة (للتوافق مع الواجهات السابقة)
+     */
+    fun getCurrentWifiInfo(): Pair<Boolean, String?> {
+        val state = getWifiConnectionState()
+        return Pair(state.isConnected, state.ssid)
+    }
+
+    /**
+     * قراءة العدادات الخام مباشرة من TrafficStats بالنظام
+     * ملاحظة تقنية: TrafficStats لا يفصل الاستهلاك تلقائياً بالـ SSID
+     * نقوم بحساب حركة Wi-Fi عبر استبعاد بيانات الشبكة الخلوية Mobile Data
+     */
+    fun readCurrentRawTraffic(): RawTrafficReading {
+        val connectionState = getWifiConnectionState()
+
+        val totalRx = TrafficStats.getTotalRxBytes()
+        val totalTx = TrafficStats.getTotalTxBytes()
+        val mobileRx = TrafficStats.getMobileRxBytes()
+        val mobileTx = TrafficStats.getMobileTxBytes()
+
+        // استخلاص بايتات Wi-Fi من إجمالي حركة البيانات مطروحاً منها بيانات شبكة الجوال
+        val wifiRx = if (totalRx >= 0 && mobileRx >= 0) {
+            maxOf(0L, totalRx - mobileRx)
+        } else {
+            maxOf(0L, totalRx)
+        }
+
+        val wifiTx = if (totalTx >= 0 && mobileTx >= 0) {
+            maxOf(0L, totalTx - mobileTx)
+        } else {
+            maxOf(0L, totalTx)
+        }
+
+        return RawTrafficReading(
+            timestamp = System.currentTimeMillis(),
+            bootElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+            rawRxBytes = wifiRx,
+            rawTxBytes = wifiTx,
+            isWifiConnected = connectionState.isConnected,
+            ssid = connectionState.ssid,
+            bssid = null,
+            isSsidConfirmed = connectionState.isSsidConfirmed
+        )
+    }
+}
