@@ -7,8 +7,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
-    <!-- Location permission is required by Android to read the connected Wi-Fi SSID name -->
+    <!-- Android 12 and earlier: location permission may be required to read SSID -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Android 13+: use nearby Wi-Fi devices permission where supported, without requesting location -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Foreground Service permissions for continuous background monitoring -->
