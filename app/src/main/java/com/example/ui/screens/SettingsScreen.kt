@@ -246,7 +246,7 @@ fun PermissionsStatusCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
             Spacer(modifier = Modifier.height(10.dp))
 
-            // صلاحية الموقع لقراءة SSID
+            // الصلاحية المناسبة لإصدار Android لقراءة SSID
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
