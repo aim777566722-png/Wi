@@ -92,9 +92,12 @@ class MainActivity : ComponentActivity() {
                         onSelectNetwork = { ssid -> viewModel.selectNetwork(ssid); viewModel.navigateTo(Screen.NetworkDetail(ssid)) },
                         onPeriodSelected = { period -> viewModel.setFilterPeriod(period) },
                         onRequestLocationPermission = {
-                            val permsToRequest = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                            val permsToRequest = mutableListOf<String>()
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                permsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
                                 permsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                permsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
                             }
                             permissionsLauncher.launch(permsToRequest.toTypedArray())
                         },
