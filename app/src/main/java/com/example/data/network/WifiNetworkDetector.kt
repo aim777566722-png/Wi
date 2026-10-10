@@ -35,6 +35,19 @@ class WifiNetworkDetector(private val context: Context) {
     }
 
     /**
+     * صلاحية محاولة قراءة اسم شبكة Wi-Fi:
+     * Android 13+ يستخدم صلاحية الأجهزة القريبة، والإصدارات الأقدم تستخدم صلاحية الموقع.
+     */
+    fun hasSsidPermission(): Boolean {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.NEARBY_WIFI_DEVICES
+        } else {
+            Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
      * التحقق من صلاحية الإشعارات (Android 13+)
      */
     fun hasNotificationPermission(): Boolean {
@@ -96,13 +109,13 @@ class WifiNetworkDetector(private val context: Context) {
             )
         }
 
-        // الهاتف متصل بـ Wi-Fi؛ الآن نتحقق من صلاحية الموقع لاستخراج اسم الشبكة
-        if (!hasLocationPermission()) {
+        // الهاتف متصل بـ Wi-Fi؛ نتحقق من الصلاحية المناسبة لإصدار Android.
+        if (!hasSsidPermission()) {
             return WifiConnectionState(
                 isConnected = true,
                 ssid = null,
                 isSsidConfirmed = false,
-                notes = "متصل بـ Wi-Fi ولكن تعذر قراءة SSID لعدم منح صلاحية الموقع"
+                notes = "متصل بـ Wi-Fi ولكن لم تُمنح صلاحية قراءة اسم الشبكة"
             )
         }
 
@@ -133,7 +146,7 @@ class WifiNetworkDetector(private val context: Context) {
                 ssid = null,
                 isSsidConfirmed = false,
                 notes = if (!isLocationServiceEnabled()) {
-                    "متصل بـ Wi-Fi ولكن خدمات الموقع مطفأة بالجهاز"
+                    "متصل بـ Wi-Fi ولكن Android لم يُتح اسم الشبكة؛ تحقق من إعدادات Wi-Fi والصلاحيات"
                 } else {
                     "متصل بـ Wi-Fi ولكن اسم الشبكة مخفي من قبل نقطة الوصول"
                 }
