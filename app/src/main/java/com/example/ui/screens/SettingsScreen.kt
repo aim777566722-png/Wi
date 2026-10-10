@@ -74,7 +74,7 @@ fun SettingsScreen(
         // بطاقة الصلاحيات
         item {
             PermissionsStatusCard(
-                hasLocationPermission = uiState.hasLocationPermission,
+                hasSsidPermission = uiState.hasSsidPermission,
                 hasNotificationPermission = uiState.hasNotificationPermission,
                 onRequestLocationPermission = onRequestLocationPermission
             )
@@ -194,7 +194,7 @@ fun MonitoringControlCard(
 
 @Composable
 fun PermissionsStatusCard(
-    hasLocationPermission: Boolean,
+    hasSsidPermission: Boolean,
     hasNotificationPermission: Boolean,
     onRequestLocationPermission: () -> Unit
 ) {
@@ -256,21 +256,21 @@ fun PermissionsStatusCard(
                     Icon(
                         imageVector = Icons.Default.LocationOn,
                         contentDescription = null,
-                        tint = if (hasLocationPermission) SuccessGreen else WarningAmber,
+                        tint = if (hasSsidPermission) SuccessGreen else WarningAmber,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "صلاحية الموقع لقراءة اسم الشبكة (SSID)",
+                            text = "صلاحية قراءة اسم شبكة Wi-Fi (SSID)",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = if (hasLocationPermission) {
-                                "مسموح بقراءة اسم شبكة Wi-Fi الحالية"
+                            text = if (hasSsidPermission) {
+                                "الصلاحية المطلوبة لإصدار Android ممنوحة"
                             } else {
-                                "بدونها يظهر اسم الشبكة كـ Wi-Fi عام بدون SSID"
+                                "Android 13+: الأجهزة القريبة؛ Android 12 أو أقدم: الموقع"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
@@ -278,7 +278,7 @@ fun PermissionsStatusCard(
                     }
                 }
 
-                if (!hasLocationPermission) {
+                if (!hasSsidPermission) {
                     OutlinedButton(
                         onClick = onRequestLocationPermission,
                         modifier = Modifier.testTag("request_location_permission_button")
