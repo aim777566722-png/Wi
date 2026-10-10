@@ -37,7 +37,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -61,7 +60,6 @@ fun HomeScreen(
     uiState: MainUiState,
     onNavigate: (Screen) -> Unit,
     onRefreshSnapshot: () -> Unit,
-    onToggleMonitoring: () -> Unit = {},
     onRequestPermissions: () -> Unit = {}
 ) {
     LazyColumn(
@@ -76,7 +74,6 @@ fun HomeScreen(
             CurrentStatusCard(
                 uiState = uiState,
                 onRefreshSnapshot = onRefreshSnapshot,
-                onToggleMonitoring = onToggleMonitoring,
                 onRequestPermissions = onRequestPermissions
             )
         }
@@ -169,7 +166,6 @@ fun HomeScreen(
 fun CurrentStatusCard(
     uiState: MainUiState,
     onRefreshSnapshot: () -> Unit,
-    onToggleMonitoring: () -> Unit,
     onRequestPermissions: () -> Unit
 ) {
     Card(
@@ -186,7 +182,7 @@ fun CurrentStatusCard(
                 .fillMaxWidth()
                 .padding(20.dp)
         ) {
-            // الصف العلوي: حالة المراقبة ومفتاح التبديل
+            // الصف العلوي: حالة المراقبة التلقائية
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -217,11 +213,6 @@ fun CurrentStatusCard(
                     )
                 }
 
-                Switch(
-                    checked = uiState.isMonitoringActive,
-                    onCheckedChange = { onToggleMonitoring() },
-                    modifier = Modifier.testTag("monitoring_toggle_switch")
-                )
             }
 
             Spacer(modifier = Modifier.height(14.dp))
