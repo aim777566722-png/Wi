@@ -77,18 +77,15 @@ class MainViewModel(
         observeData()
         observeServiceState()
 
-        // استعادة حالة الخدمة وفق تفضيلات المستخدم المحفوظة
-        val shouldMonitor = MonitoringPreferences.isMonitoringEnabled(appContext)
+        // المراقبة تلقائية دائماً: تجاهل أي إعداد قديم كان يسمح بإيقافها من الواجهة.
+        MonitoringPreferences.setMonitoringEnabled(appContext, true)
         _uiState.update {
             it.copy(
-                isMonitoringActive = shouldMonitor,
+                isMonitoringActive = true,
                 lastReadingTime = MonitoringPreferences.getLastReadingTimestamp(appContext)
             )
         }
-
-        if (shouldMonitor) {
-            WifiMonitoringService.startService(appContext)
-        }
+        WifiMonitoringService.startService(appContext)
 
         // تسجيل قراءة مرجعية أولية تلقائياً عند بدء التشغيل
         recordCurrentSnapshot(isAutomatic = true)
