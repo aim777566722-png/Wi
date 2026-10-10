@@ -279,7 +279,7 @@ fun CurrentStatusCard(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "اسم الشبكة محجوب لعدم منح صلاحية الموقع",
+                                text = "تعذر قراءة اسم الشبكة؛ تحقق من الصلاحية المناسبة لإصدار Android",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 fontSize = 11.sp
