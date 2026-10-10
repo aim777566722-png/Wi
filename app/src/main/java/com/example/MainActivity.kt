@@ -98,7 +98,7 @@ class MainActivity : ComponentActivity() {
                             }
                             permissionsLauncher.launch(permsToRequest.toTypedArray())
                         },
-                        onToggleMonitoring = { viewModel.toggleMonitoring() }
+                        
                     )
                 }
             }
@@ -115,8 +115,7 @@ fun MainAppScaffold(
     onRefreshSnapshot: () -> Unit,
     onSelectNetwork: (String) -> Unit,
     onPeriodSelected: (com.example.data.model.FilterPeriod) -> Unit,
-    onRequestLocationPermission: () -> Unit,
-    onToggleMonitoring: () -> Unit
+    onRequestLocationPermission: () -> Unit
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -179,7 +178,6 @@ fun MainAppScaffold(
                         uiState = uiState,
                         onNavigate = onNavigate,
                         onRefreshSnapshot = onRefreshSnapshot,
-                        onToggleMonitoring = onToggleMonitoring,
                         onRequestPermissions = onRequestLocationPermission
                     )
                 }
@@ -205,8 +203,7 @@ fun MainAppScaffold(
                 is Screen.Settings -> {
                     SettingsScreen(
                         uiState = uiState,
-                        onRequestLocationPermission = onRequestLocationPermission,
-                        onToggleMonitoring = onToggleMonitoring
+                        onRequestLocationPermission = onRequestLocationPermission
                     )
                 }
             }
