@@ -172,16 +172,6 @@ class WifiMonitoringService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val stopIntent = Intent(this, WifiMonitoringService::class.java).apply {
-            action = ACTION_STOP_MONITORING
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            1,
-            stopIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("مراقب استهلاك Wi-Fi")
             .setContentText(contentText)
@@ -189,11 +179,6 @@ class WifiMonitoringService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(openAppPendingIntent)
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "إيقاف المراقبة",
-                stopPendingIntent
-            )
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
