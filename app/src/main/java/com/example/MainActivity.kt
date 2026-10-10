@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                     val snackbarHostState = remember { SnackbarHostState() }
 
-                    // مُطلق طلب الصلاحيات (الموقع الدقيق + الإشعارات لأندرويد 13+)
+                    // طلب صلاحية الشبكة المناسبة لإصدار Android والإشعارات على Android 13+
                     val permissionsLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.RequestMultiplePermissions()
                     ) { permissions ->
