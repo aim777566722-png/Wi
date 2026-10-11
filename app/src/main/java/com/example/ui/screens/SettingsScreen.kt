@@ -16,8 +16,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.Card
@@ -254,7 +254,7 @@ fun PermissionsStatusCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Icon(
-                        imageVector = Icons.Default.LocationOn,
+                        imageVector = Icons.Default.Wifi,
                         contentDescription = null,
                         tint = if (hasSsidPermission) SuccessGreen else WarningAmber,
                         modifier = Modifier.size(20.dp)
@@ -269,8 +269,10 @@ fun PermissionsStatusCard(
                         Text(
                             text = if (hasSsidPermission) {
                                 "الصلاحية المطلوبة لإصدار Android ممنوحة"
+                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                "يلزم إذن الأجهزة القريبة (Wi-Fi) فقط؛ لا يحتاج التطبيق إلى إذن الموقع"
                             } else {
-                                "يلزم إذن الموقع الدقيق وتشغيل خدمة الموقع حتى يكشف Android اسم الشبكة"
+                                "إصدارات Android القديمة تتطلب إذن الموقع، وقد تتطلب تشغيل خدمات الموقع لقراءة الاسم"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
@@ -283,7 +285,10 @@ fun PermissionsStatusCard(
                         onClick = onRequestLocationPermission,
                         modifier = Modifier.testTag("request_location_permission_button")
                     ) {
-                        Text("طلب الصلاحية", fontSize = 11.sp)
+                        Text(
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) "طلب إذن Wi-Fi" else "طلب الصلاحية",
+                            fontSize = 11.sp
+                        )
                     }
                 } else {
                     Text(
