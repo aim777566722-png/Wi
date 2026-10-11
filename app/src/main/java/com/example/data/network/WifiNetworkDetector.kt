@@ -35,16 +35,40 @@ class WifiNetworkDetector(private val context: Context) {
     }
 
     /**
-     * صلاحية محاولة قراءة اسم شبكة Wi-Fi:
-     * Android 13+ يستخدم صلاحية الأجهزة القريبة، والإصدارات الأقدم تستخدم صلاحية الموقع.
+     * Reading SSID is location-sensitive on Android. NEARBY_WIFI_DEVICES alone
+     * does not guarantee that Android reveals the SSID from WifiInfo.
      */
-    fun hasSsidPermission(): Boolean {
-        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.NEARBY_WIFI_DEVICES
-        } else {
-            Manifest.permission.ACCESS_FINE_LOCATION
+    fun hasSsidPermission(): Boolean = hasLocationPermission()
+
+    private data class ConnectedWifiNetwork(
+        val network: android.net.Network,
+        val capabilities: NetworkCapabilities
+    )
+
+    /**
+     * Do not infer Wi-Fi connectivity from activeNetwork alone: a VPN or another
+     * default route can hide the underlying Wi-Fi network from that property.
+     * Prefer the default network when it is Wi-Fi, then locate another connected
+     * Wi-Fi transport for metering and SSID attribution.
+     */
+    private fun findConnectedWifiNetwork(): ConnectedWifiNetwork? {
+        val cm = connectivityManager ?: return null
+        val active = cm.activeNetwork
+        if (active != null) {
+            val activeCaps = runCatching { cm.getNetworkCapabilities(active) }.getOrNull()
+            if (activeCaps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                return ConnectedWifiNetwork(active, activeCaps)
+            }
         }
-        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+
+        return runCatching {
+            cm.allNetworks.firstNotNullOfOrNull { network ->
+                val caps = cm.getNetworkCapabilities(network)
+                if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                    ConnectedWifiNetwork(network, caps)
+                } else null
+            }
+        }.getOrNull()
     }
 
     /**
@@ -78,77 +102,52 @@ class WifiNetworkDetector(private val context: Context) {
      * فحص حالة اتصال Wi-Fi الحالي واستخراج SSID دون تخمين أو تضليل
      */
     fun getWifiConnectionState(): WifiConnectionState {
-        val cm = connectivityManager ?: return WifiConnectionState(
+        val connectedWifi = findConnectedWifiNetwork() ?: return WifiConnectionState(
             isConnected = false,
             ssid = null,
             isSsidConfirmed = false,
-            notes = "تعذر الوصول إلى خدمة ConnectivityManager"
+            notes = "لم يعثر Android على اتصال Wi-Fi متاح؛ قد يكون الاتصال الحالي عبر شبكة أخرى أو أن حالة الشبكة لم تتحدث بعد"
         )
 
-        val activeNetwork = cm.activeNetwork ?: return WifiConnectionState(
-            isConnected = false,
-            ssid = null,
-            isSsidConfirmed = false,
-            notes = "لا يوجد اتصال شبكة نشط"
-        )
-
-        val capabilities = cm.getNetworkCapabilities(activeNetwork) ?: return WifiConnectionState(
-            isConnected = false,
-            ssid = null,
-            isSsidConfirmed = false,
-            notes = "لا توجد خصائص شبكة متاحة"
-        )
-
-        val isWifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-        if (!isWifi) {
-            return WifiConnectionState(
-                isConnected = false,
-                ssid = null,
-                isSsidConfirmed = false,
-                notes = "الاتصال النشط ليس عبر Wi-Fi"
-            )
-        }
-
-        // الهاتف متصل بـ Wi-Fi؛ نتحقق من الصلاحية المناسبة لإصدار Android.
+        // Wi-Fi connectivity is confirmed independently of whether Android reveals the SSID.
         if (!hasSsidPermission()) {
             return WifiConnectionState(
                 isConnected = true,
                 ssid = null,
                 isSsidConfirmed = false,
-                notes = "متصل بـ Wi-Fi ولكن لم تُمنح صلاحية قراءة اسم الشبكة"
+                notes = "متصل بـ Wi-Fi، لكن يلزم منح صلاحية الموقع الدقيق وتشغيل خدمات الموقع لقراءة اسم الشبكة (SSID)"
             )
         }
 
         var rawSsid: String? = null
-
-        // استخراج SSID عبر WifiInfo من NetworkCapabilities (Android 10+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val transportInfo = capabilities.transportInfo
-            if (transportInfo is WifiInfo) {
-                rawSsid = transportInfo.ssid
-            }
+            val transportInfo = connectedWifi.capabilities.transportInfo
+            if (transportInfo is WifiInfo) rawSsid = transportInfo.ssid
         }
 
-        // الطريقة المساندة عبر WifiManager
-        if (rawSsid.isNullOrEmpty() || rawSsid == "<unknown ssid>") {
-            val wifiInfo = wifiManager?.connectionInfo
-            if (wifiInfo != null) {
-                rawSsid = wifiInfo.ssid
-            }
+        // On Android 12+, getNetworkCapabilities() can redact location-sensitive WifiInfo.
+        // Use WifiManager as a compatibility fallback after checking location permission.
+        if (rawSsid.isNullOrBlank() ||
+            rawSsid == "<unknown ssid>" ||
+            rawSsid == WifiManager.UNKNOWN_SSID
+        ) {
+            rawSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
         }
 
-        // تنظيف الاسم من علامات التنصيص المزدوجة
         val cleanSsid = rawSsid?.trim('"')
-
-        return if (cleanSsid.isNullOrBlank() || cleanSsid == "<unknown ssid>") {
+        return if (
+            cleanSsid.isNullOrBlank() ||
+            cleanSsid == "<unknown ssid>" ||
+            cleanSsid == WifiManager.UNKNOWN_SSID
+        ) {
             WifiConnectionState(
                 isConnected = true,
                 ssid = null,
                 isSsidConfirmed = false,
                 notes = if (!isLocationServiceEnabled()) {
-                    "متصل بـ Wi-Fi ولكن Android لم يُتح اسم الشبكة؛ تحقق من إعدادات Wi-Fi والصلاحيات"
+                    "متصل بـ Wi-Fi؛ فعّل خدمات الموقع في إعدادات الهاتف لكي يكشف Android اسم الشبكة"
                 } else {
-                    "متصل بـ Wi-Fi ولكن اسم الشبكة مخفي من قبل نقطة الوصول"
+                    "متصل بـ Wi-Fi، لكن Android لم يكشف اسم الشبكة؛ سيستمر تسجيل الاستهلاك تحت اسم Wi-Fi عام"
                 }
             )
         } else {
@@ -182,12 +181,9 @@ class WifiNetworkDetector(private val context: Context) {
     private fun readWifiCounters(isWifiConnected: Boolean): TrafficCounters {
         if (isWifiConnected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val cm = connectivityManager
-            val network = cm?.activeNetwork
-            val isActiveWifi = network != null &&
-                cm.getNetworkCapabilities(network)
-                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-            val interfaceName = if (isActiveWifi && network != null) {
-                cm?.getLinkProperties(network)?.interfaceName
+            val wifiNetwork = findConnectedWifiNetwork()?.network
+            val interfaceName = if (wifiNetwork != null) {
+                cm?.getLinkProperties(wifiNetwork)?.interfaceName
             } else null
 
             if (!interfaceName.isNullOrBlank()) {
