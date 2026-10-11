@@ -156,41 +156,80 @@ class WifiNetworkDetector(private val context: Context) {
         return Pair(state.isConnected, state.ssid)
     }
 
+    private data class TrafficCounters(
+        val rxBytes: Long,
+        val txBytes: Long,
+        val measurementNote: String? = null
+    )
+
     /**
-     * قراءة العدادات الخام مباشرة من TrafficStats بالنظام
-     * ملاحظة تقنية: TrafficStats لا يفصل الاستهلاك تلقائياً بالـ SSID
-     * نقوم بحساب حركة Wi-Fi عبر استبعاد بيانات الشبكة الخلوية Mobile Data
+     * Prefer active Wi-Fi interface counters when Android exposes them (API 31+).
+     * The fallback on older releases is an estimate, not an exact Wi-Fi-only counter.
      */
-    fun readCurrentRawTraffic(): RawTrafficReading {
-        val connectionState = getWifiConnectionState()
+    private fun readWifiCounters(isWifiConnected: Boolean): TrafficCounters {
+        if (isWifiConnected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val cm = connectivityManager
+            val network = cm?.activeNetwork
+            val isActiveWifi = network != null &&
+                cm.getNetworkCapabilities(network)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            val interfaceName = if (isActiveWifi && network != null) {
+                cm?.getLinkProperties(network)?.interfaceName
+            } else null
+
+            if (!interfaceName.isNullOrBlank()) {
+                val rx = TrafficStats.getRxBytes(interfaceName)
+                val tx = TrafficStats.getTxBytes(interfaceName)
+                if (rx >= 0L && tx >= 0L) {
+                    return TrafficCounters(
+                        rxBytes = rx,
+                        txBytes = tx,
+                        measurementNote = "القياس من عدادات واجهة Wi-Fi ($interfaceName). قد لا تشمل هذه العدادات بعض حركة VPN أو تغييرات النظام."
+                    )
+                }
+            }
+        }
 
         val totalRx = TrafficStats.getTotalRxBytes()
         val totalTx = TrafficStats.getTotalTxBytes()
         val mobileRx = TrafficStats.getMobileRxBytes()
         val mobileTx = TrafficStats.getMobileTxBytes()
 
-        // استخلاص بايتات Wi-Fi من إجمالي حركة البيانات مطروحاً منها بيانات شبكة الجوال
-        val wifiRx = if (totalRx >= 0 && mobileRx >= 0) {
+        val estimatedRx = if (totalRx >= 0L && mobileRx >= 0L) {
             maxOf(0L, totalRx - mobileRx)
         } else {
             maxOf(0L, totalRx)
         }
-
-        val wifiTx = if (totalTx >= 0 && mobileTx >= 0) {
+        val estimatedTx = if (totalTx >= 0L && mobileTx >= 0L) {
             maxOf(0L, totalTx - mobileTx)
         } else {
             maxOf(0L, totalTx)
         }
 
+        val note = if (isWifiConnected) {
+            "قياس تقديري: لا تتوفر عدادات واجهة Wi-Fi المباشرة؛ طرح عدادات الجوال من الإجمالي لا يضمن فصل Wi-Fi بدقة."
+        } else null
+        return TrafficCounters(estimatedRx, estimatedTx, note)
+    }
+
+    /**
+     * Reads cumulative interface counters. The first sample is only a baseline;
+     * it is not treated as new usage because it may include previous traffic.
+     */
+    fun readCurrentRawTraffic(): RawTrafficReading {
+        val connectionState = getWifiConnectionState()
+        val counters = readWifiCounters(connectionState.isConnected)
+
         return RawTrafficReading(
             timestamp = System.currentTimeMillis(),
             bootElapsedRealtimeMs = SystemClock.elapsedRealtime(),
-            rawRxBytes = wifiRx,
-            rawTxBytes = wifiTx,
+            rawRxBytes = counters.rxBytes,
+            rawTxBytes = counters.txBytes,
             isWifiConnected = connectionState.isConnected,
             ssid = connectionState.ssid,
             bssid = null,
-            isSsidConfirmed = connectionState.isSsidConfirmed
+            isSsidConfirmed = connectionState.isSsidConfirmed,
+            measurementNote = counters.measurementNote
         )
     }
 }

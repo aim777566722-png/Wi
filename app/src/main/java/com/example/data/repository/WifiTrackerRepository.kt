@@ -18,6 +18,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.Calendar
 
 class WifiTrackerRepository(
@@ -32,6 +34,9 @@ class WifiTrackerRepository(
     val recentSnapshots: Flow<List<DataUsageSnapshotEntity>> = snapshotDao.getRecentSnapshots(200)
 
     val latestSnapshot: Flow<DataUsageSnapshotEntity?> = snapshotDao.getLatestSnapshotFlow()
+
+    // Serialize sampling and persistence so timer and network callbacks cannot race.
+    private val recordMutex = Mutex()
 
     fun getTodayStartTime(): Long {
         val calendar = Calendar.getInstance().apply {
@@ -101,7 +106,8 @@ class WifiTrackerRepository(
      * تسجيل قراءة جديدة من عدادات النظام واحتساب الزيادة بدقة
      * يمنع تكرار إدخال قراءات متطابقة (No Change) لتفادي تضخيم قاعدة البيانات دون فائدة
      */
-    suspend fun recordSnapshot(): Pair<DataUsageSnapshotEntity, ComputedDelta> = withContext(Dispatchers.IO) {
+    suspend fun recordSnapshot(): Pair<DataUsageSnapshotEntity, ComputedDelta> = recordMutex.withLock {
+        withContext(Dispatchers.IO) {
         val rawReading = networkDetector.readCurrentRawTraffic()
         val latest = snapshotDao.getLatestSnapshot()
 
@@ -114,7 +120,17 @@ class WifiTrackerRepository(
         }
 
         // إذا لم تطرأ أي زيادة وكان السجل السابق لنفس الحالة والشبكة، نتفادى حفظ سجل مكرر فارغ
-        if (delta.status == ReadingStatus.NO_CHANGE && latest != null && latest.ssid == targetSsid) {
+        if (
+            latest != null &&
+            latest.ssid == targetSsid &&
+            (
+                delta.status == ReadingStatus.NO_CHANGE ||
+                (
+                    delta.status == ReadingStatus.DISCONNECTED_FALLBACK &&
+                    latest.readingStatus == ReadingStatus.DISCONNECTED_FALLBACK.name
+                )
+            )
+        ) {
             MonitoringPreferences.setLastReadingTimestamp(context, rawReading.timestamp)
             return@withContext Pair(latest, delta)
         }
@@ -148,7 +164,10 @@ class WifiTrackerRepository(
             readingStatus = delta.status.name,
             bootElapsedTimeMs = rawReading.bootElapsedRealtimeMs,
             deviceId = "local_device",
-            notes = delta.notes
+            notes = listOfNotNull(delta.notes, rawReading.measurementNote)
+                .distinct()
+                .joinToString(separator = "\n")
+                .takeIf { it.isNotBlank() }
         )
 
         val insertedId = snapshotDao.insert(snapshot)
@@ -157,6 +176,7 @@ class WifiTrackerRepository(
         MonitoringPreferences.setLastReadingTimestamp(context, rawReading.timestamp)
 
         Pair(finalSnapshot, delta)
+        }
     }
 
     /**

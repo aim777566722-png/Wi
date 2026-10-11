@@ -17,7 +17,9 @@ import com.example.data.repository.WifiTrackerRepository
 import com.example.service.WifiMonitoringService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -70,6 +72,7 @@ class MainViewModel(
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+    private var selectedNetworkJob: Job? = null
 
     init {
         loadTechnicalConstraints()
@@ -86,8 +89,14 @@ class MainViewModel(
             )
         }
 
-        if (shouldMonitor) {
-            WifiMonitoringService.startService(appContext)
+        if (shouldMonitor && !WifiMonitoringService.startService(appContext)) {
+            MonitoringPreferences.setMonitoringEnabled(appContext, false)
+            _uiState.update {
+                it.copy(
+                    isMonitoringActive = false,
+                    feedbackMessage = "تعذر تشغيل خدمة المراقبة. افتح التطبيق وتحقق من قيود النظام ثم حاول مجددًا."
+                )
+            }
         }
 
         // تسجيل قراءة مرجعية أولية تلقائياً عند بدء التشغيل
@@ -97,9 +106,9 @@ class MainViewModel(
     private fun loadTechnicalConstraints() {
         val constraints = listOf(
             TechnicalConstraintInfo(
-                title = "عدم فصل عدادات Android حسب اسم الشبكة (SSID)",
-                description = "لا توفر مكتبات TrafficStats أو NetworkStatsManager تصنيفاً مستقلاً لحركة البيانات بناءً على SSID في العدادات الخام للنظام. يعتمد التطبيق على ربط SSID النشط لحظياً مع فروق العدادات المتتالية أثناء جلسة الاتصال المستمرة فقط.",
-                recommendation = "عند انقطاع Wi-Fi أو التبديل لشبكة أخرى، تُغلق الجلسة فوراً ويُسجل أساس جديد لتفادي خلط حركة الشبكات."
+                title = "دقة قياس استهلاك Wi-Fi وحدود واجهات Android",
+                description = "يستخدم التطبيق عدادات واجهة Wi-Fi النشطة على Android 12 فأحدث عند توفرها. هذه عدادات على مستوى الواجهة وقد لا تشمل بعض حركة VPN أو تعديلات النظام، كما أنها لا تفصل كل شبكة SSID تاريخيًا بشكل مضمون. في الإصدارات الأقدم يستخدم التطبيق تقديرًا من إجمالي الحركة بعد طرح عدادات الجوال.",
+                recommendation = "تظهر ملاحظة القياس مع السجلات؛ القراءة الأولى نقطة أساس ولا تحتسب تراكمًا سابقًا، وعند انقطاع Wi-Fi أو التبديل تُفتح جلسة قياس جديدة لتقليل نسبة حركة شبكة إلى أخرى."
             ),
             TechnicalConstraintInfo(
                 title = "إعادة ضبط العدادات بعد إعادة تشغيل الهاتف",
@@ -242,17 +251,29 @@ class MainViewModel(
 
     fun toggleMonitoring() {
         val willEnable = !_uiState.value.isMonitoringActive
-        MonitoringPreferences.setMonitoringEnabled(appContext, willEnable)
-
         if (willEnable) {
-            WifiMonitoringService.startService(appContext)
-            _uiState.update {
-                it.copy(
-                    isMonitoringActive = true,
-                    feedbackMessage = "تم تشغيل خدمة المراقبة في الخلفية"
-                )
+            val startRequested = WifiMonitoringService.startService(appContext)
+            if (startRequested) {
+                MonitoringPreferences.setMonitoringEnabled(appContext, true)
+                _uiState.update {
+                    it.copy(
+                        isMonitoringActive = true,
+                        feedbackMessage = "تم طلب تشغيل خدمة المراقبة في الخلفية"
+                    )
+                }
+            } else {
+                MonitoringPreferences.setMonitoringEnabled(appContext, false)
+                _uiState.update {
+                    it.copy(
+                        isMonitoringActive = false,
+                        isServiceRunning = false,
+                        serviceMonitoringState = ServiceMonitoringState.STOPPED,
+                        feedbackMessage = "تعذر بدء خدمة المراقبة. حاول تشغيلها والتطبيق ظاهر على الشاشة."
+                    )
+                }
             }
         } else {
+            MonitoringPreferences.setMonitoringEnabled(appContext, false)
             WifiMonitoringService.stopService(appContext)
             _uiState.update {
                 it.copy(
@@ -286,7 +307,8 @@ class MainViewModel(
     }
 
     private fun loadSelectedNetworkDetails(ssid: String, period: FilterPeriod) {
-        viewModelScope.launch {
+        selectedNetworkJob?.cancel()
+        selectedNetworkJob = viewModelScope.launch {
             val startTime = when (period) {
                 FilterPeriod.TODAY -> repository.getTodayStartTime()
                 FilterPeriod.WEEK -> repository.getWeekStartTime()
@@ -300,7 +322,7 @@ class MainViewModel(
                 repository.getSnapshotsForNetworkSince(ssid, startTime)
             }
 
-            flow.collect { snapshots ->
+            flow.collectLatest { snapshots ->
                 var rx = 0L
                 var tx = 0L
                 snapshots.forEach {

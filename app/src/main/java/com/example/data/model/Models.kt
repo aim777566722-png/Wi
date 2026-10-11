@@ -46,7 +46,8 @@ data class RawTrafficReading(
     val isWifiConnected: Boolean,
     val ssid: String?,
     val bssid: String?,
-    val isSsidConfirmed: Boolean = true
+    val isSsidConfirmed: Boolean = true,
+    val measurementNote: String? = null
 )
 
 /**

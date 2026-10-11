@@ -14,7 +14,7 @@ object MonitoringPreferences {
     }
 
     fun isMonitoringEnabled(context: Context): Boolean {
-        return getPrefs(context).getBoolean(KEY_MONITORING_ENABLED, true)
+        return getPrefs(context).getBoolean(KEY_MONITORING_ENABLED, false)
     }
 
     fun setMonitoringEnabled(context: Context, enabled: Boolean) {

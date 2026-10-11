@@ -13,7 +13,7 @@
 
     <!-- Foreground Service permissions for continuous background monitoring -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- Notification permission for Android 13+ (API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -47,7 +47,11 @@
         <service
             android:name=".service.WifiMonitoringService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled continuous Wi-Fi interface monitoring and local traffic accounting, not a data transfer operation." />
+        </service>
 
         <!-- Receiver to restore monitoring after system boot -->
         <receiver
