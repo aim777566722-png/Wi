@@ -94,10 +94,8 @@ class MainActivity : ComponentActivity() {
                         onRequestLocationPermission = {
                             val permsToRequest = mutableListOf<String>()
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                                // Nearby permission supports Wi-Fi APIs; fine location is still needed
-                                // to reveal the location-sensitive SSID used to attribute each session.
+                                // Android 13+ can use nearby Wi-Fi access without requesting location.
                                 permsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-                                permsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
                                 permsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
                             } else {
                                 permsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
