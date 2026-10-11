@@ -270,7 +270,7 @@ fun PermissionsStatusCard(
                             text = if (hasSsidPermission) {
                                 "الصلاحية المطلوبة لإصدار Android ممنوحة"
                             } else {
-                                "Android 13+: الأجهزة القريبة؛ Android 12 أو أقدم: الموقع"
+                                "يلزم إذن الموقع الدقيق وتشغيل خدمة الموقع حتى يكشف Android اسم الشبكة"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
