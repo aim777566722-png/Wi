@@ -47,6 +47,16 @@ class WifiTrackerRepository(
     private val _activeSessionUsage = MutableStateFlow(loadActiveSessionUsage())
     val activeSessionUsage: StateFlow<ActiveWifiSessionUsage> = _activeSessionUsage.asStateFlow()
 
+    private val _activeManualNetworkName = MutableStateFlow(loadActiveManualNetworkName())
+    val activeManualNetworkName: StateFlow<String?> = _activeManualNetworkName.asStateFlow()
+
+    private fun loadActiveManualNetworkName(): String? {
+        if (!sessionPrefs.getBoolean(K_ACTIVE, false) ||
+            !sessionPrefs.getBoolean(K_MANUAL_SSID, false)
+        ) return null
+        return sessionPrefs.getString(K_SSID, null)
+    }
+
     private fun loadActiveSessionUsage(): ActiveWifiSessionUsage {
         if (!sessionPrefs.getBoolean(K_ACTIVE, false)) return ActiveWifiSessionUsage()
         val now = System.currentTimeMillis()
@@ -79,6 +89,7 @@ class WifiTrackerRepository(
 
     private fun syncActiveSessionUsage() {
         _activeSessionUsage.value = loadActiveSessionUsage()
+        _activeManualNetworkName.value = loadActiveManualNetworkName()
     }
 
     /**
@@ -86,11 +97,18 @@ class WifiTrackerRepository(
      * cannot reveal the SSID. This label is session-scoped, not a permanent network
      * identity, so it is cleared on a Wi-Fi network-loss event.
      */
-    fun getActiveManualNetworkName(): String? {
-        if (!sessionPrefs.getBoolean(K_ACTIVE, false) ||
-            !sessionPrefs.getBoolean(K_MANUAL_SSID, false)
-        ) return null
-        return sessionPrefs.getString(K_SSID, null)
+    fun getActiveManualNetworkName(): String? = _activeManualNetworkName.value
+
+    /**
+     * A process/service restart cannot prove that a previously manually named, anonymous
+     * Wi-Fi connection is still the same physical network. Expire the alias so the user
+     * confirms it again rather than accidentally attributing usage to the wrong network.
+     */
+    fun invalidateManualNetworkAssignment() {
+        if (sessionPrefs.getBoolean(K_MANUAL_SSID, false)) {
+            sessionPrefs.edit().putBoolean(K_MANUAL_SSID, false).apply()
+            _activeManualNetworkName.value = null
+        }
     }
 
     /**
@@ -237,8 +255,9 @@ class WifiTrackerRepository(
         withContext(Dispatchers.IO) {
         // If Android reports a Wi-Fi network transition but cannot expose an SSID,
         // expire any manual label from the previous connection before sampling again.
-        if (networkIdentityLost) {
+        if (networkIdentityLost && sessionPrefs.getBoolean(K_MANUAL_SSID, false)) {
             sessionPrefs.edit().putBoolean(K_MANUAL_SSID, false).apply()
+            _activeManualNetworkName.value = null
         }
 
         val reading = networkDetector.readCurrentRawTraffic()
