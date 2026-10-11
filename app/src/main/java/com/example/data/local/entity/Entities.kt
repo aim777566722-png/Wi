@@ -11,7 +11,7 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "wifi_networks",
     indices = [
-        Index(value = ["ssid"]),
+        Index(value = ["ssid"], unique = true),
         Index(value = ["deviceId"])
     ]
 )

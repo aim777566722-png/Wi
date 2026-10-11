@@ -17,7 +17,9 @@ import com.example.data.repository.WifiTrackerRepository
 import com.example.service.WifiMonitoringService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -38,7 +40,7 @@ data class MainUiState(
     val isMonitoringActive: Boolean = true,
     val isServiceRunning: Boolean = false,
     val serviceMonitoringState: ServiceMonitoringState = ServiceMonitoringState.STOPPED,
-    val hasLocationPermission: Boolean = false,
+    val hasSsidPermission: Boolean = false,
     val hasNotificationPermission: Boolean = false,
     val lastReadingTime: Long? = null,
     val todayRxBytes: Long = 0L,
@@ -70,6 +72,7 @@ class MainViewModel(
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+    private var selectedNetworkJob: Job? = null
 
     init {
         loadTechnicalConstraints()
@@ -77,17 +80,21 @@ class MainViewModel(
         observeData()
         observeServiceState()
 
-        // استعادة حالة الخدمة وفق تفضيلات المستخدم المحفوظة
-        val shouldMonitor = MonitoringPreferences.isMonitoringEnabled(appContext)
+        // المراقبة تلقائية دائماً: تجاهل أي إعداد قديم كان يسمح بإيقافها من الواجهة.
+        MonitoringPreferences.setMonitoringEnabled(appContext, true)
         _uiState.update {
             it.copy(
-                isMonitoringActive = shouldMonitor,
+                isMonitoringActive = true,
                 lastReadingTime = MonitoringPreferences.getLastReadingTimestamp(appContext)
             )
         }
-
-        if (shouldMonitor) {
-            WifiMonitoringService.startService(appContext)
+        if (!WifiMonitoringService.startService(appContext)) {
+            _uiState.update {
+                it.copy(
+                    isServiceRunning = false,
+                    feedbackMessage = "تعذر بدء خدمة المراقبة في الخلفية. ستتم محاولة تشغيلها عند فتح التطبيق مجددًا."
+                )
+            }
         }
 
         // تسجيل قراءة مرجعية أولية تلقائياً عند بدء التشغيل
@@ -107,9 +114,9 @@ class MainViewModel(
                 recommendation = "عند رصد إعادة التشغيل، ينشئ التطبيق نقطة مرجعية جديدة بصفر بايت بدلاً من احتساب العداد التراكمي كاستهلاك جديد."
             ),
             TechnicalConstraintInfo(
-                title = "اشتراط صلاحية الموقع لقراءة اسم الشبكة (SSID)",
-                description = "بدءاً من Android 8.1 وAndroid 10 فما فوق، يعتبر نظام أندرويد اسم شبكة Wi-Fi معلومة حساسة تتطلب منح صلاحية الموقع الدقيق (ACCESS_FINE_LOCATION).",
-                recommendation = "بدون هذه الصلاحية، يُظهر النظام الاسم كـ <unknown ssid>، وتُسجل القراءات بوضوح كـ 'Wi-Fi عام' دون تخمين مضلل."
+                title = "صلاحيات Android لقراءة اسم الشبكة (SSID)",
+                description = "على Android 13+ يجرّب التطبيق صلاحية الأجهزة القريبة لتجنب طلب الموقع، بينما قد تتطلب الإصدارات الأقدم صلاحية الموقع وتشغيل خدمات الموقع. قد تحجب بعض الأجهزة اسم الشبكة رغم منح الصلاحية.",
+                recommendation = "إذا لم يُرجع النظام الاسم، يسجل التطبيق الشبكة باسم عام بدلاً من تخمين اسم غير مؤكد."
             ),
             TechnicalConstraintInfo(
                 title = "تسجيل فجوة بيانات عند الانقطاع والعودة",
@@ -127,7 +134,7 @@ class MainViewModel(
 
     fun checkWifiStatus() {
         val connectionState = networkDetector.getWifiConnectionState()
-        val hasLoc = networkDetector.hasLocationPermission()
+        val hasSsidPermission = networkDetector.hasSsidPermission()
         val hasNotif = networkDetector.hasNotificationPermission()
 
         _uiState.update {
@@ -136,7 +143,7 @@ class MainViewModel(
                 currentWifiSsid = connectionState.ssid,
                 isSsidConfirmed = connectionState.isSsidConfirmed,
                 connectionNotes = connectionState.notes,
-                hasLocationPermission = hasLoc,
+                hasSsidPermission = hasSsidPermission,
                 hasNotificationPermission = hasNotif
             )
         }
@@ -286,7 +293,8 @@ class MainViewModel(
     }
 
     private fun loadSelectedNetworkDetails(ssid: String, period: FilterPeriod) {
-        viewModelScope.launch {
+        selectedNetworkJob?.cancel()
+        selectedNetworkJob = viewModelScope.launch {
             val startTime = when (period) {
                 FilterPeriod.TODAY -> repository.getTodayStartTime()
                 FilterPeriod.WEEK -> repository.getWeekStartTime()
@@ -300,7 +308,7 @@ class MainViewModel(
                 repository.getSnapshotsForNetworkSince(ssid, startTime)
             }
 
-            flow.collect { snapshots ->
+            flow.collectLatest { snapshots ->
                 var rx = 0L
                 var tx = 0L
                 snapshots.forEach {

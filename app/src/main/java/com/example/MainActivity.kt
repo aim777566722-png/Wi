@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
                     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                     val snackbarHostState = remember { SnackbarHostState() }
 
-                    // مُطلق طلب الصلاحيات (الموقع الدقيق + الإشعارات لأندرويد 13+)
+                    // طلب صلاحية الشبكة المناسبة لإصدار Android والإشعارات على Android 13+
                     val permissionsLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.RequestMultiplePermissions()
                     ) { permissions ->
@@ -92,13 +92,16 @@ class MainActivity : ComponentActivity() {
                         onSelectNetwork = { ssid -> viewModel.selectNetwork(ssid); viewModel.navigateTo(Screen.NetworkDetail(ssid)) },
                         onPeriodSelected = { period -> viewModel.setFilterPeriod(period) },
                         onRequestLocationPermission = {
-                            val permsToRequest = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                            val permsToRequest = mutableListOf<String>()
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                permsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
                                 permsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                permsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
                             }
                             permissionsLauncher.launch(permsToRequest.toTypedArray())
                         },
-                        onToggleMonitoring = { viewModel.toggleMonitoring() }
+                        
                     )
                 }
             }
@@ -115,8 +118,7 @@ fun MainAppScaffold(
     onRefreshSnapshot: () -> Unit,
     onSelectNetwork: (String) -> Unit,
     onPeriodSelected: (com.example.data.model.FilterPeriod) -> Unit,
-    onRequestLocationPermission: () -> Unit,
-    onToggleMonitoring: () -> Unit
+    onRequestLocationPermission: () -> Unit
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -179,7 +181,6 @@ fun MainAppScaffold(
                         uiState = uiState,
                         onNavigate = onNavigate,
                         onRefreshSnapshot = onRefreshSnapshot,
-                        onToggleMonitoring = onToggleMonitoring,
                         onRequestPermissions = onRequestLocationPermission
                     )
                 }
@@ -205,8 +206,7 @@ fun MainAppScaffold(
                 is Screen.Settings -> {
                     SettingsScreen(
                         uiState = uiState,
-                        onRequestLocationPermission = onRequestLocationPermission,
-                        onToggleMonitoring = onToggleMonitoring
+                        onRequestLocationPermission = onRequestLocationPermission
                     )
                 }
             }

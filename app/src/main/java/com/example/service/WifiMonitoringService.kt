@@ -24,6 +24,7 @@ import com.example.ui.components.Formatters
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,11 +32,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class WifiMonitoringService : Service() {
 
-    private val serviceJob = Job()
+    private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    private val readingMutex = Mutex()
+    private var periodicJob: Job? = null
 
     private lateinit var connectivityManager: ConnectivityManager
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -93,9 +98,7 @@ class WifiMonitoringService : Service() {
             override fun onLost(network: Network) {
                 serviceScope.launch {
                     _serviceStateFlow.value = ServiceMonitoringState.WAITING_WIFI
-                    val app = application as? WifiTrackerApplication
-                    app?.repository?.recordSnapshot()
-                    updateNotification("المراقبة نشطة: بانتظار اتصال Wi-Fi")
+                    performReadingAndRefreshNotification("تغير اتصال Wi-Fi")
                 }
             }
         }
@@ -109,7 +112,8 @@ class WifiMonitoringService : Service() {
     }
 
     private fun startPeriodicMonitoringLoop() {
-        serviceScope.launch {
+        if (periodicJob?.isActive == true) return
+        periodicJob = serviceScope.launch {
             while (isActive) {
                 performReadingAndRefreshNotification(null)
                 delay(45_000L) // فحص كل 45 ثانية
@@ -118,38 +122,38 @@ class WifiMonitoringService : Service() {
     }
 
     private suspend fun performReadingAndRefreshNotification(reason: String?) {
-        val app = application as? WifiTrackerApplication ?: return
-        try {
-            val (snapshot, delta) = app.repository.recordSnapshot()
-            val (isWifi, ssid) = app.networkDetector.getCurrentWifiInfo()
+        readingMutex.withLock {
+            val app = application as? WifiTrackerApplication ?: return
+            try {
+                val (snapshot, _) = app.repository.recordSnapshot()
+                val (isWifi, ssid) = app.networkDetector.getCurrentWifiInfo()
+                _lastReadingTimeFlow.value = snapshot.timestamp
+                MonitoringPreferences.setLastReadingTimestamp(this, snapshot.timestamp)
 
-            _lastReadingTimeFlow.value = snapshot.timestamp
-            MonitoringPreferences.setLastReadingTimestamp(this, snapshot.timestamp)
-
-            val statusText = if (isWifi) {
-                _serviceStateFlow.value = ServiceMonitoringState.ACTIVE
-                val networkName = ssid ?: "Wi-Fi عام"
-                val todayUsage = app.repository.getTodayUsage().firstOrNull()
-                val todayTotal = (todayUsage?.totalRx ?: 0L) + (todayUsage?.totalTx ?: 0L)
-                "متصل بـ: $networkName | استهلاك اليوم: ${Formatters.formatBytes(todayTotal)}"
-            } else {
-                _serviceStateFlow.value = ServiceMonitoringState.WAITING_WIFI
-                "المراقبة نشطة: بانتظار اتصال Wi-Fi"
+                val statusText = if (isWifi) {
+                    _serviceStateFlow.value = ServiceMonitoringState.ACTIVE
+                    val networkName = ssid ?: "Wi-Fi عام"
+                    val todayUsage = app.repository.getTodayUsage().firstOrNull()
+                    val todayTotal = (todayUsage?.totalRx ?: 0L) + (todayUsage?.totalTx ?: 0L)
+                    "متصل بـ: $networkName | استهلاك اليوم: ${Formatters.formatBytes(todayTotal)}"
+                } else {
+                    _serviceStateFlow.value = ServiceMonitoringState.WAITING_WIFI
+                    "المراقبة نشطة: بانتظار اتصال Wi-Fi"
+                }
+                updateNotification(reason?.let { "$it — $statusText" } ?: statusText)
+            } catch (e: Exception) {
+                updateNotification("المراقبة نشطة (تعذر تسجيل قراءة مؤقتة)")
             }
-
-            updateNotification(statusText)
-        } catch (e: Exception) {
-            updateNotification("المراقبة نشطة (تعذر تسجيل قراءة مؤقت)")
         }
     }
 
     private fun startForegroundWithNotification(contentText: String) {
         val notification = buildNotification(contentText)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
@@ -172,16 +176,6 @@ class WifiMonitoringService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val stopIntent = Intent(this, WifiMonitoringService::class.java).apply {
-            action = ACTION_STOP_MONITORING
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this,
-            1,
-            stopIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("مراقب استهلاك Wi-Fi")
             .setContentText(contentText)
@@ -189,11 +183,6 @@ class WifiMonitoringService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(openAppPendingIntent)
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "إيقاف المراقبة",
-                stopPendingIntent
-            )
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
@@ -218,6 +207,8 @@ class WifiMonitoringService : Service() {
         _isRunningFlow.value = false
         _serviceStateFlow.value = ServiceMonitoringState.STOPPED
         MonitoringPreferences.setMonitoringEnabled(this, false)
+        periodicJob?.cancel()
+        periodicJob = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -235,6 +226,8 @@ class WifiMonitoringService : Service() {
             networkCallback = null
         }
 
+        periodicJob?.cancel()
+        periodicJob = null
         serviceJob.cancel()
         super.onDestroy()
     }
@@ -256,18 +249,19 @@ class WifiMonitoringService : Service() {
         private val _lastReadingTimeFlow = MutableStateFlow<Long?>(null)
         val lastReadingTimeFlow: StateFlow<Long?> = _lastReadingTimeFlow.asStateFlow()
 
-        fun startService(context: Context) {
+        fun startService(context: Context): Boolean {
             val intent = Intent(context, WifiMonitoringService::class.java).apply {
                 action = ACTION_START_MONITORING
             }
-            try {
+            return try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
                 } else {
                     context.startService(intent)
                 }
+                true
             } catch (e: Exception) {
-                // في حال وجود قيود انطلاق الخدمات في الخلفية في أندرويد 12+
+                false
             }
         }
 
