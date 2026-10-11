@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.TrafficStats
 import android.net.wifi.WifiInfo
@@ -23,6 +24,42 @@ class WifiNetworkDetector(private val context: Context) {
         context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     private val locationManager =
         context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+
+    // Android 12+ redacts WifiInfo from NetworkCapabilities callbacks unless the
+    // callback opts in. Keep the confirmed SSID paired with that exact Network so
+    // background sampling can use it without misattributing another Wi-Fi network.
+    @Volatile private var callbackWifiNetwork: Network? = null
+    @Volatile private var callbackWifiSsid: String? = null
+
+    private fun normalizeSsid(rawSsid: String?): String? {
+        val value = rawSsid?.trim('"')?.takeIf { it.isNotBlank() }
+        return value?.takeUnless {
+            it == "<unknown ssid>" || it == WifiManager.UNKNOWN_SSID
+        }
+    }
+
+    fun updateWifiNetworkFromCallback(network: Network, capabilities: NetworkCapabilities) {
+        if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val ssid = normalizeSsid((capabilities.transportInfo as? WifiInfo)?.ssid) ?: return
+        synchronized(this) {
+            callbackWifiNetwork = network
+            callbackWifiSsid = ssid
+        }
+    }
+
+    fun clearWifiNetworkFromCallback(network: Network) {
+        synchronized(this) {
+            if (callbackWifiNetwork == network) {
+                callbackWifiNetwork = null
+                callbackWifiSsid = null
+            }
+        }
+    }
+
+    private fun callbackSsidFor(network: Network): String? = synchronized(this) {
+        if (callbackWifiNetwork == network) callbackWifiSsid else null
+    }
 
     /**
      * التحقق مما إذا كانت صلاحية الموقع ممنوحة (مطلوبة لقراءة SSID في أندرويد 8.1+)
@@ -125,21 +162,19 @@ class WifiNetworkDetector(private val context: Context) {
             if (transportInfo is WifiInfo) rawSsid = transportInfo.ssid
         }
 
-        // On Android 12+, getNetworkCapabilities() can redact location-sensitive WifiInfo.
         // Use WifiManager as a compatibility fallback after checking location permission.
-        if (rawSsid.isNullOrBlank() ||
-            rawSsid == "<unknown ssid>" ||
-            rawSsid == WifiManager.UNKNOWN_SSID
-        ) {
+        if (normalizeSsid(rawSsid) == null) {
             rawSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
         }
 
-        val cleanSsid = rawSsid?.trim('"')
-        return if (
-            cleanSsid.isNullOrBlank() ||
-            cleanSsid == "<unknown ssid>" ||
-            cleanSsid == WifiManager.UNKNOWN_SSID
-        ) {
+        // A callback registered with FLAG_INCLUDE_LOCATION_INFO can expose the SSID
+        // even when direct NetworkCapabilities reads are redacted in the background.
+        if (normalizeSsid(rawSsid) == null) {
+            rawSsid = callbackSsidFor(connectedWifi.network)
+        }
+
+        val cleanSsid = normalizeSsid(rawSsid)
+        return if (cleanSsid == null) {
             WifiConnectionState(
                 isConnected = true,
                 ssid = null,
