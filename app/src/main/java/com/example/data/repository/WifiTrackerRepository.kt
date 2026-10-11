@@ -422,6 +422,7 @@ class WifiTrackerRepository(
         val id = snapshotDao.insert(entity)
         sessionPrefs.edit().clear().apply()
         _activeSessionUsage.value = ActiveWifiSessionUsage()
+        _activeManualNetworkName.value = null
         return entity.copy(id = id)
     }
 
