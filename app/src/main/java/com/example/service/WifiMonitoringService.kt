@@ -81,26 +81,12 @@ class WifiMonitoringService : Service() {
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
 
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                serviceScope.launch {
-                    _serviceStateFlow.value = ServiceMonitoringState.ACTIVE
-                    performReadingAndRefreshNotification("تم الاتصال بشبكة Wi-Fi")
-                }
-            }
-
-            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-                serviceScope.launch {
-                    performReadingAndRefreshNotification("تحديث خصائص اتصال Wi-Fi")
-                }
-            }
-
-            override fun onLost(network: Network) {
-                serviceScope.launch {
-                    _serviceStateFlow.value = ServiceMonitoringState.WAITING_WIFI
-                    performReadingAndRefreshNotification("تغير اتصال Wi-Fi")
-                }
-            }
+        // Android 12+ strips location-sensitive WifiInfo (including SSID) from
+        // callbacks by default. Opt in only while the user-enabled monitor is running.
+        val callback = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            WifiNetworkCallback(ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO)
+        } else {
+            WifiNetworkCallback()
         }
 
         try {
@@ -108,6 +94,39 @@ class WifiMonitoringService : Service() {
             networkCallback = callback
         } catch (e: Exception) {
             // التعامل بأمان في حال وجود قيود
+        }
+    }
+
+    private inner class WifiNetworkCallback : ConnectivityManager.NetworkCallback {
+        constructor() : super()
+
+        // This constructor is invoked only on Android 12+ where it is available.
+        constructor(flags: Int) : super(flags)
+
+        override fun onAvailable(network: Network) {
+            serviceScope.launch {
+                _serviceStateFlow.value = ServiceMonitoringState.ACTIVE
+                // Wait for onCapabilitiesChanged before sampling, so an unknown
+                // initial SSID is not accidentally recorded as "Wi-Fi عام".
+                updateNotification("تم الاتصال بشبكة Wi-Fi؛ جارٍ تحديد اسم الشبكة")
+            }
+        }
+
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            (application as? WifiTrackerApplication)?.networkDetector
+                ?.updateWifiNetworkFromCallback(network, networkCapabilities)
+            serviceScope.launch {
+                performReadingAndRefreshNotification("تحديث خصائص اتصال Wi-Fi")
+            }
+        }
+
+        override fun onLost(network: Network) {
+            (application as? WifiTrackerApplication)?.networkDetector
+                ?.clearWifiNetworkFromCallback(network)
+            serviceScope.launch {
+                _serviceStateFlow.value = ServiceMonitoringState.WAITING_WIFI
+                performReadingAndRefreshNotification("تغير اتصال Wi-Fi")
+            }
         }
     }
 
