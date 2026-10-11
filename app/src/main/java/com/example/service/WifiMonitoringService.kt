@@ -129,7 +129,12 @@ class WifiMonitoringService : Service() {
                 ?.clearWifiNetworkFromCallback(network)
             serviceScope.launch {
                 _serviceStateFlow.value = ServiceMonitoringState.WAITING_WIFI
-                performReadingAndRefreshNotification("تغير اتصال Wi-Fi")
+                // A hand-entered label belongs to the connection that was just lost;
+                // do not silently carry it to a different, unidentified Wi-Fi network.
+                performReadingAndRefreshNotification(
+                    "تغير اتصال Wi-Fi",
+                    networkIdentityLost = true
+                )
             }
         }
     }
@@ -144,11 +149,16 @@ class WifiMonitoringService : Service() {
         }
     }
 
-    private suspend fun performReadingAndRefreshNotification(reason: String?) {
+    private suspend fun performReadingAndRefreshNotification(
+        reason: String?,
+        networkIdentityLost: Boolean = false
+    ) {
         readingMutex.withLock {
             val app = application as? WifiTrackerApplication ?: return
             try {
-                val (snapshot, _) = app.repository.recordSnapshot()
+                val (snapshot, _) = app.repository.recordSnapshot(
+                    networkIdentityLost = networkIdentityLost
+                )
                 val (isWifi, ssid) = app.networkDetector.getCurrentWifiInfo()
                 _lastReadingTimeFlow.value = snapshot.timestamp
                 MonitoringPreferences.setLastReadingTimestamp(this, snapshot.timestamp)
