@@ -48,6 +48,9 @@ class WifiMonitoringService : Service() {
     override fun onCreate() {
         super.onCreate()
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        // After a service/process restart the hidden SSID cannot prove the old manually
+        // assigned network is still current. Ask for a fresh choice instead of guessing.
+        (application as? WifiTrackerApplication)?.repository?.invalidateManualNetworkAssignment()
         createNotificationChannel()
     }
 
