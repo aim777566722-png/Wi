@@ -17,7 +17,9 @@ import com.example.data.repository.WifiTrackerRepository
 import com.example.service.WifiMonitoringService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -70,6 +72,7 @@ class MainViewModel(
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+    private var selectedNetworkJob: Job? = null
 
     init {
         loadTechnicalConstraints()
@@ -85,7 +88,14 @@ class MainViewModel(
                 lastReadingTime = MonitoringPreferences.getLastReadingTimestamp(appContext)
             )
         }
-        WifiMonitoringService.startService(appContext)
+        if (!WifiMonitoringService.startService(appContext)) {
+            _uiState.update {
+                it.copy(
+                    isServiceRunning = false,
+                    feedbackMessage = "تعذر بدء خدمة المراقبة في الخلفية. ستتم محاولة تشغيلها عند فتح التطبيق مجددًا."
+                )
+            }
+        }
 
         // تسجيل قراءة مرجعية أولية تلقائياً عند بدء التشغيل
         recordCurrentSnapshot(isAutomatic = true)
@@ -283,7 +293,8 @@ class MainViewModel(
     }
 
     private fun loadSelectedNetworkDetails(ssid: String, period: FilterPeriod) {
-        viewModelScope.launch {
+        selectedNetworkJob?.cancel()
+        selectedNetworkJob = viewModelScope.launch {
             val startTime = when (period) {
                 FilterPeriod.TODAY -> repository.getTodayStartTime()
                 FilterPeriod.WEEK -> repository.getWeekStartTime()
@@ -297,7 +308,7 @@ class MainViewModel(
                 repository.getSnapshotsForNetworkSince(ssid, startTime)
             }
 
-            flow.collect { snapshots ->
+            flow.collectLatest { snapshots ->
                 var rx = 0L
                 var tx = 0L
                 snapshots.forEach {

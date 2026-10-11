@@ -41,13 +41,28 @@ data class WifiConnectionState(
 data class RawTrafficReading(
     val timestamp: Long,
     val bootElapsedRealtimeMs: Long,
-    val rawRxBytes: Long, // إجمالي بايتات الاستقبال (تنزيل)
-    val rawTxBytes: Long, // إجمالي بايتات الإرسال (رفع)
+    val rawRxBytes: Long,
+    val rawTxBytes: Long,
     val isWifiConnected: Boolean,
     val ssid: String?,
     val bssid: String?,
-    val isSsidConfirmed: Boolean = true
+    val isSsidConfirmed: Boolean = true,
+    val measurementNote: String? = null
 )
+
+/** Live session totals; not inserted into history until the Wi-Fi session ends. */
+data class ActiveWifiSessionUsage(
+    val ssid: String? = null,
+    val startTimestamp: Long = 0L,
+    val totalRxBytes: Long = 0L,
+    val totalTxBytes: Long = 0L,
+    val todayRxBytes: Long = 0L,
+    val todayTxBytes: Long = 0L,
+    val monthRxBytes: Long = 0L,
+    val monthTxBytes: Long = 0L
+) {
+    val isActive: Boolean get() = !ssid.isNullOrBlank()
+}
 
 /**
  * فرق الاستهلاك المحسوب منذ القراءة السابقة
