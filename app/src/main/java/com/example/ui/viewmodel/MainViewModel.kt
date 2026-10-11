@@ -173,12 +173,10 @@ class MainViewModel(
     }
 
     private fun observeData() {
-        // Refresh the manually assigned label whenever active session state changes.
+        // Observe the explicit label separately so it can clear even when byte totals stay unchanged.
         viewModelScope.launch {
-            repository.activeSessionUsage.collect {
-                _uiState.update {
-                    it.copy(activeManualNetworkName = repository.getActiveManualNetworkName())
-                }
+            repository.activeManualNetworkName.collect { manualName ->
+                _uiState.update { it.copy(activeManualNetworkName = manualName) }
             }
         }
 
