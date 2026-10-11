@@ -182,7 +182,8 @@ fun MainAppScaffold(
                         uiState = uiState,
                         onNavigate = onNavigate,
                         onRefreshSnapshot = onRefreshSnapshot,
-                        onRequestPermissions = onRequestLocationPermission
+                        onRequestPermissions = onRequestLocationPermission,
+                        onAssignCurrentNetworkName = { name -> viewModel.assignCurrentNetworkName(name) }
                     )
                 }
                 is Screen.Networks -> {
