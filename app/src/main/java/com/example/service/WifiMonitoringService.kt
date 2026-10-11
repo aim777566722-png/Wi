@@ -168,7 +168,7 @@ class WifiMonitoringService : Service() {
 
                 val statusText = if (isWifi) {
                     _serviceStateFlow.value = ServiceMonitoringState.ACTIVE
-                    val networkName = ssid ?: "Wi-Fi عام"
+                    val networkName = ssid ?: app.repository.getActiveManualNetworkName() ?: "Wi-Fi عام"
                     val todayUsage = app.repository.getTodayUsage().firstOrNull()
                     val todayTotal = (todayUsage?.totalRx ?: 0L) + (todayUsage?.totalTx ?: 0L)
                     "متصل بـ: $networkName | استهلاك اليوم: ${Formatters.formatBytes(todayTotal)}"
