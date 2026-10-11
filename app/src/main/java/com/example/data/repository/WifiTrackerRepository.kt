@@ -8,6 +8,7 @@ import com.example.data.local.dao.NetworkUsageTuple
 import com.example.data.local.dao.TotalUsageTuple
 import com.example.data.local.entity.DataUsageSnapshotEntity
 import com.example.data.local.entity.NetworkEntity
+import com.example.data.model.ActiveWifiSessionUsage
 import com.example.data.model.ComputedDelta
 import com.example.data.model.NetworkSummary
 import com.example.data.model.ReadingStatus
@@ -260,16 +261,16 @@ class WifiTrackerRepository(
         }
 
         MonitoringPreferences.setLastReadingTimestamp(context, now)
-        val active = _activeSessionUsage.value
-        val current = if (active.isActive) {
+        val activeState = _activeSessionUsage.value
+        val current = if (activeState.isActive) {
             DataUsageSnapshotEntity(
                 id = -1L,
-                ssid = active.ssid!!,
+                ssid = activeState.ssid!!,
                 timestamp = now,
                 rawRxBytes = reading.rawRxBytes.coerceAtLeast(0L),
                 rawTxBytes = reading.rawTxBytes.coerceAtLeast(0L),
-                deltaRxBytes = active.totalRxBytes,
-                deltaTxBytes = active.totalTxBytes,
+                deltaRxBytes = activeState.totalRxBytes,
+                deltaTxBytes = activeState.totalTxBytes,
                 readingStatus = ReadingStatus.VALID.name,
                 bootElapsedTimeMs = reading.bootElapsedRealtimeMs,
                 notes = "جلسة Wi-Fi جارية؛ الاستهلاك مؤقت ويتحدث أثناء الاتصال."
