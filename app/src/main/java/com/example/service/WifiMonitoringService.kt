@@ -81,9 +81,13 @@ class WifiMonitoringService : Service() {
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
 
-        // Android 12+ strips location-sensitive WifiInfo (including SSID) from
-        // callbacks by default. Opt in only while the user-enabled monitor is running.
-        val callback = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // Android 12 uses the location-sensitive callback flag because that release
+        // still ties SSID access to location. Android 13+ uses NEARBY_WIFI_DEVICES
+        // with neverForLocation; don't request location-sensitive callback fields there.
+        val callback = if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+        ) {
             WifiNetworkCallback(ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO)
         } else {
             WifiNetworkCallback()
