@@ -81,6 +81,52 @@ class WifiTrackerRepository(
         _activeSessionUsage.value = loadActiveSessionUsage()
     }
 
+    /**
+     * Returns a name chosen by the user for the currently active session when Android
+     * cannot reveal the SSID. This label is session-scoped, not a permanent network
+     * identity, so it is cleared on a Wi-Fi network-loss event.
+     */
+    fun getActiveManualNetworkName(): String? {
+        if (!sessionPrefs.getBoolean(K_ACTIVE, false) ||
+            !sessionPrefs.getBoolean(K_MANUAL_SSID, false)
+        ) return null
+        return sessionPrefs.getString(K_SSID, null)
+    }
+
+    /**
+     * Assign a user-selected label to the active unknown Wi-Fi session, preserving the
+     * counters already collected for that session. The network name is also saved in
+     * Room through the existing network table so it appears as a reusable choice later.
+     */
+    suspend fun assignActiveSessionNetworkName(name: String): Boolean = recordMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val cleanName = name.trim()
+            if (cleanName.isBlank() ||
+                cleanName == TrafficDeltaCalculator.GENERAL_WIFI_FALLBACK_SSID ||
+                !sessionPrefs.getBoolean(K_ACTIVE, false)
+            ) {
+                return@withContext false
+            }
+
+            val now = System.currentTimeMillis()
+            val existing = networkDao.findBySsid(cleanName)
+            if (existing == null) {
+                networkDao.insert(
+                    NetworkEntity(ssid = cleanName, firstSeenTimestamp = now, lastSeenTimestamp = now)
+                )
+            } else {
+                networkDao.update(existing.copy(lastSeenTimestamp = now))
+            }
+
+            sessionPrefs.edit()
+                .putString(K_SSID, cleanName)
+                .putBoolean(K_MANUAL_SSID, true)
+                .apply()
+            syncActiveSessionUsage()
+            true
+        }
+    }
+
     private fun dayKey(time: Long): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date(time))
 
@@ -185,8 +231,16 @@ class WifiTrackerRepository(
      * session ends. The in-progress session state is persisted in SharedPreferences so that
      * ordinary service restarts do not create a new history row every 45 seconds.
      */
-    suspend fun recordSnapshot(): Pair<DataUsageSnapshotEntity, ComputedDelta> = recordMutex.withLock {
+    suspend fun recordSnapshot(
+        networkIdentityLost: Boolean = false
+    ): Pair<DataUsageSnapshotEntity, ComputedDelta> = recordMutex.withLock {
         withContext(Dispatchers.IO) {
+        // If Android reports a Wi-Fi network transition but cannot expose an SSID,
+        // expire any manual label from the previous connection before sampling again.
+        if (networkIdentityLost) {
+            sessionPrefs.edit().putBoolean(K_MANUAL_SSID, false).apply()
+        }
+
         val reading = networkDetector.readCurrentRawTraffic()
         val now = reading.timestamp
         val active = sessionPrefs.getBoolean(K_ACTIVE, false)
@@ -199,8 +253,12 @@ class WifiTrackerRepository(
 
         if (active) {
             val sameBoot = savedBoot >= 0 && reading.bootElapsedRealtimeMs >= savedBoot
-            val sameNetwork = reading.isWifiConnected &&
-                (reading.ssid ?: TrafficDeltaCalculator.GENERAL_WIFI_FALLBACK_SSID) == savedSsid
+            val currentSsid = reading.ssid
+            val sameNetwork = reading.isWifiConnected && when {
+                currentSsid != null -> currentSsid == savedSsid
+                sessionPrefs.getBoolean(K_MANUAL_SSID, false) -> true
+                else -> TrafficDeltaCalculator.GENERAL_WIFI_FALLBACK_SSID == savedSsid
+            }
 
             if (sameBoot && sameNetwork && savedRx >= 0 && savedTx >= 0 &&
                 reading.rawRxBytes >= savedRx && reading.rawTxBytes >= savedTx) {
@@ -300,6 +358,7 @@ class WifiTrackerRepository(
             .putLong(K_BOOT, boot)
             .putLong(K_TOTAL_RX, 0L)
             .putLong(K_TOTAL_TX, 0L)
+            .putBoolean(K_MANUAL_SSID, false)
             .putString(K_DAY_KEY, dayKey(now))
             .putLong(K_DAY_RX, 0L)
             .putLong(K_DAY_TX, 0L)
@@ -402,5 +461,6 @@ class WifiTrackerRepository(
         private const val K_MONTH_RX = "month_rx"
         private const val K_MONTH_TX = "month_tx"
         private const val K_MEASUREMENT_NOTE = "measurement_note"
+        private const val K_MANUAL_SSID = "manual_ssid"
     }
 }
