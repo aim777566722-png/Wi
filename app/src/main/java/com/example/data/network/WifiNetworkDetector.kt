@@ -72,10 +72,19 @@ class WifiNetworkDetector(private val context: Context) {
     }
 
     /**
-     * Reading SSID is location-sensitive on Android. NEARBY_WIFI_DEVICES alone
-     * does not guarantee that Android reveals the SSID from WifiInfo.
+     * Android 13+ provides NEARBY_WIFI_DEVICES for Wi-Fi access without deriving
+     * physical location. Older Android versions require location permission.
      */
-    fun hasSsidPermission(): Boolean = hasLocationPermission()
+    fun hasSsidPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.NEARBY_WIFI_DEVICES
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            hasLocationPermission()
+        }
+    }
 
     private data class ConnectedWifiNetwork(
         val network: android.net.Network,
@@ -148,11 +157,16 @@ class WifiNetworkDetector(private val context: Context) {
 
         // Wi-Fi connectivity is confirmed independently of whether Android reveals the SSID.
         if (!hasSsidPermission()) {
+            val permissionNote = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                "متصل بـ Wi-Fi؛ امنح إذن «الأجهزة القريبة / Wi-Fi» ليتمكن التطبيق من قراءة اسم الشبكة دون إذن الموقع"
+            } else {
+                "متصل بـ Wi-Fi، لكن هذا الإصدار من Android يتطلب إذن الموقع لتحديد اسم الشبكة (SSID)"
+            }
             return WifiConnectionState(
                 isConnected = true,
                 ssid = null,
                 isSsidConfirmed = false,
-                notes = "متصل بـ Wi-Fi، لكن يلزم منح صلاحية الموقع الدقيق وتشغيل خدمات الموقع لقراءة اسم الشبكة (SSID)"
+                notes = permissionNote
             )
         }
 
@@ -175,15 +189,19 @@ class WifiNetworkDetector(private val context: Context) {
 
         val cleanSsid = normalizeSsid(rawSsid)
         return if (cleanSsid == null) {
+            val note = if (
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU &&
+                !isLocationServiceEnabled()
+            ) {
+                "متصل بـ Wi-Fi؛ هذا الإصدار من Android يتطلب تشغيل خدمات الموقع كي يكشف اسم الشبكة"
+            } else {
+                "متصل بـ Wi-Fi، لكن النظام لم يكشف اسم الشبكة باستخدام الصلاحيات الحالية؛ سيستمر تسجيل الاستهلاك مؤقتًا تحت اسم Wi-Fi عام"
+            }
             WifiConnectionState(
                 isConnected = true,
                 ssid = null,
                 isSsidConfirmed = false,
-                notes = if (!isLocationServiceEnabled()) {
-                    "متصل بـ Wi-Fi؛ فعّل خدمات الموقع في إعدادات الهاتف لكي يكشف Android اسم الشبكة"
-                } else {
-                    "متصل بـ Wi-Fi، لكن Android لم يكشف اسم الشبكة؛ سيستمر تسجيل الاستهلاك تحت اسم Wi-Fi عام"
-                }
+                notes = note
             )
         } else {
             WifiConnectionState(
