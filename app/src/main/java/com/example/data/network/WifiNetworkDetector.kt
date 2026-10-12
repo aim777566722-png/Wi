@@ -40,8 +40,17 @@ class WifiNetworkDetector(private val context: Context) {
 
     fun updateWifiNetworkFromCallback(network: Network, capabilities: NetworkCapabilities) {
         if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val ssid = normalizeSsid((capabilities.transportInfo as? WifiInfo)?.ssid) ?: return
+
+        // NetworkCapabilities may redact transportInfo in callbacks. On Android 13+
+        // the app uses NEARBY_WIFI_DEVICES rather than location permission, so also
+        // ask WifiManager for the currently associated network name.
+        val capabilitySsid = (capabilities.transportInfo as? WifiInfo)?.ssid
+        @Suppress("DEPRECATION")
+        val managerSsid = if (normalizeSsid(capabilitySsid) == null && hasSsidPermission()) {
+            runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+        } else null
+        val ssid = normalizeSsid(capabilitySsid) ?: normalizeSsid(managerSsid) ?: return
+
         synchronized(this) {
             callbackWifiNetwork = network
             callbackWifiSsid = ssid
@@ -171,18 +180,27 @@ class WifiNetworkDetector(private val context: Context) {
         }
 
         var rawSsid: String? = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+
+        // Prefer WifiManager on Android 13+ because its SSID access path is governed by
+        // NEARBY_WIFI_DEVICES for apps that do not derive physical location. This avoids
+        // depending on location services or a location-sensitive NetworkCallback flag.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            @Suppress("DEPRECATION")
+            rawSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+        }
+
+        if (normalizeSsid(rawSsid) == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val transportInfo = connectedWifi.capabilities.transportInfo
             if (transportInfo is WifiInfo) rawSsid = transportInfo.ssid
         }
 
-        // Use WifiManager as a compatibility fallback after checking location permission.
+        // Compatibility fallback for earlier Android releases.
         if (normalizeSsid(rawSsid) == null) {
+            @Suppress("DEPRECATION")
             rawSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
         }
 
-        // A callback registered with FLAG_INCLUDE_LOCATION_INFO can expose the SSID
-        // even when direct NetworkCapabilities reads are redacted in the background.
+        // Use the last confirmed SSID for this exact Network if direct reads are redacted.
         if (normalizeSsid(rawSsid) == null) {
             rawSsid = callbackSsidFor(connectedWifi.network)
         }
