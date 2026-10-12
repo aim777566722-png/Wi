@@ -137,6 +137,9 @@ class WifiMonitoringService : Service() {
     private fun startPeriodicMonitoringLoop() {
         if (periodicJob?.isActive == true) return
         periodicJob = serviceScope.launch {
+            // Give onAvailable/onCapabilitiesChanged a moment to reveal the SSID before
+            // the first sample, reducing false "Wi-Fi عام" sessions at service startup.
+            delay(2_000L)
             while (isActive) {
                 performReadingAndRefreshNotification(null)
                 delay(45_000L) // فحص كل 45 ثانية
