@@ -81,11 +81,6 @@ class WifiTrackerRepository(
         _activeSessionUsage.value = loadActiveSessionUsage()
     }
 
-    /**
-     * Returns a name chosen by the user for the currently active session when Android
-     * cannot reveal the SSID. This label is session-scoped, not a permanent network
-     * identity, so it is cleared on a Wi-Fi network-loss event.
-     */
     private fun dayKey(time: Long): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date(time))
 
