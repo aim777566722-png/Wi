@@ -48,9 +48,6 @@ class WifiMonitoringService : Service() {
     override fun onCreate() {
         super.onCreate()
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        // After a service/process restart the hidden SSID cannot prove the old manually
-        // assigned network is still current. Ask for a fresh choice instead of guessing.
-        (application as? WifiTrackerApplication)?.repository?.invalidateManualNetworkAssignment()
         createNotificationChannel()
     }
 
@@ -132,12 +129,7 @@ class WifiMonitoringService : Service() {
                 ?.clearWifiNetworkFromCallback(network)
             serviceScope.launch {
                 _serviceStateFlow.value = ServiceMonitoringState.WAITING_WIFI
-                // A hand-entered label belongs to the connection that was just lost;
-                // do not silently carry it to a different, unidentified Wi-Fi network.
-                performReadingAndRefreshNotification(
-                    "تغير اتصال Wi-Fi",
-                    networkIdentityLost = true
-                )
+                performReadingAndRefreshNotification("تغير اتصال Wi-Fi")
             }
         }
     }
@@ -152,23 +144,18 @@ class WifiMonitoringService : Service() {
         }
     }
 
-    private suspend fun performReadingAndRefreshNotification(
-        reason: String?,
-        networkIdentityLost: Boolean = false
-    ) {
+    private suspend fun performReadingAndRefreshNotification(reason: String?) {
         readingMutex.withLock {
             val app = application as? WifiTrackerApplication ?: return
             try {
-                val (snapshot, _) = app.repository.recordSnapshot(
-                    networkIdentityLost = networkIdentityLost
-                )
+                val (snapshot, _) = app.repository.recordSnapshot()
                 val (isWifi, ssid) = app.networkDetector.getCurrentWifiInfo()
                 _lastReadingTimeFlow.value = snapshot.timestamp
                 MonitoringPreferences.setLastReadingTimestamp(this, snapshot.timestamp)
 
                 val statusText = if (isWifi) {
                     _serviceStateFlow.value = ServiceMonitoringState.ACTIVE
-                    val networkName = ssid ?: app.repository.getActiveManualNetworkName() ?: "Wi-Fi عام"
+                    val networkName = ssid ?: "Wi-Fi عام"
                     val todayUsage = app.repository.getTodayUsage().firstOrNull()
                     val todayTotal = (todayUsage?.totalRx ?: 0L) + (todayUsage?.totalTx ?: 0L)
                     "متصل بـ: $networkName | استهلاك اليوم: ${Formatters.formatBytes(todayTotal)}"
