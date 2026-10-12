@@ -36,7 +36,6 @@ data class MainUiState(
     val isWifiConnected: Boolean = false,
     val currentWifiSsid: String? = null,
     val isSsidConfirmed: Boolean = false,
-    val activeManualNetworkName: String? = null,
     val connectionNotes: String? = null,
     val isMonitoringActive: Boolean = true,
     val isServiceRunning: Boolean = false,
@@ -117,7 +116,7 @@ class MainViewModel(
             TechnicalConstraintInfo(
                 title = "صلاحيات Android لقراءة اسم الشبكة (SSID)",
                 description = "على Android 13+ يجرّب التطبيق صلاحية الأجهزة القريبة لتجنب طلب الموقع، بينما قد تتطلب الإصدارات الأقدم صلاحية الموقع وتشغيل خدمات الموقع. قد تحجب بعض الأجهزة اسم الشبكة رغم منح الصلاحية.",
-                recommendation = "إذا لم يُرجع النظام الاسم، يمكن للمستخدم اختيار اسم محفوظ أو كتابة اسم لهذه الجلسة؛ ويُطلب الاختيار مجددًا إذا لم يمكن تمييز الاتصال اللاحق."
+                recommendation = "على Android 13+ يمنح التطبيق إذن الأجهزة القريبة للوصول إلى اسم الشبكة دون تشغيل الموقع. إذا أخفى النظام الاسم رغم ذلك، يسجل التطبيق الحالة بوضوح ولا يخمن اسمًا خاطئًا."
             ),
             TechnicalConstraintInfo(
                 title = "تسجيل فجوة بيانات عند الانقطاع والعودة",
@@ -173,13 +172,6 @@ class MainViewModel(
     }
 
     private fun observeData() {
-        // Observe the explicit label separately so it can clear even when byte totals stay unchanged.
-        viewModelScope.launch {
-            repository.activeManualNetworkName.collect { manualName ->
-                _uiState.update { it.copy(activeManualNetworkName = manualName) }
-            }
-        }
-
         // مراقبة استهلاك اليوم
         viewModelScope.launch {
             repository.getTodayUsage().collect { tuple ->
@@ -228,58 +220,6 @@ class MainViewModel(
      * The name applies only to this active connection; after the Wi-Fi connection is
      * lost, the service expires the manual assignment so it cannot leak to another SSID.
      */
-    fun assignCurrentNetworkName(name: String) {
-        val cleanName = name.trim()
-        if (cleanName.isBlank()) {
-            _uiState.update { it.copy(feedbackMessage = "أدخل اسم الشبكة أولاً") }
-            return
-        }
-
-        viewModelScope.launch {
-            val current = networkDetector.getWifiConnectionState()
-            when {
-                !current.isConnected -> {
-                    _uiState.update {
-                        it.copy(feedbackMessage = "لا يوجد اتصال Wi-Fi حالي لإسناد الاسم إليه")
-                    }
-                }
-                current.isSsidConfirmed -> {
-                    checkWifiStatus()
-                    _uiState.update {
-                        it.copy(feedbackMessage = "تمكن النظام من قراءة اسم الشبكة تلقائيًا؛ لم يتم تغيير الاسم")
-                    }
-                }
-                else -> try {
-                    // Make sure an active session and its baseline exist before assigning a name.
-                    repository.recordSnapshot()
-                    val latest = networkDetector.getWifiConnectionState()
-                    if (!latest.isConnected || latest.isSsidConfirmed) {
-                        checkWifiStatus()
-                        _uiState.update {
-                            it.copy(feedbackMessage = "تغيرت حالة الشبكة؛ حدّث الشاشة ثم حاول مجددًا")
-                        }
-                    } else {
-                        val assigned = repository.assignActiveSessionNetworkName(cleanName)
-                        checkWifiStatus()
-                        _uiState.update {
-                            it.copy(
-                                feedbackMessage = if (assigned) {
-                                    "تم تسجيل هذه الجلسة باسم «$cleanName». إذا تعذر تمييز الشبكة عند الاتصال بها لاحقًا، اختر الاسم مرة أخرى."
-                                } else {
-                                    "تعذر إسناد الاسم؛ تأكد من استمرار اتصال Wi-Fi ثم أعد المحاولة"
-                                }
-                            )
-                        }
-                    }
-                } catch (e: Exception) {
-                    _uiState.update {
-                        it.copy(feedbackMessage = "تعذر حفظ اسم الشبكة: ${e.localizedMessage}")
-                    }
-                }
-            }
-        }
-    }
-
     fun recordCurrentSnapshot(isAutomatic: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRecording = true) }
