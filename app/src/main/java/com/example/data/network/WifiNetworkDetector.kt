@@ -12,6 +12,7 @@ import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.data.model.RawTrafficReading
 import com.example.data.model.WifiConnectionState
@@ -36,6 +37,16 @@ class WifiNetworkDetector(private val context: Context) {
         return value?.takeUnless {
             it == "<unknown ssid>" || it == WifiManager.UNKNOWN_SSID
         }
+    }
+
+    private fun ssidReadStatus(rawSsid: String?): String = when {
+        normalizeSsid(rawSsid) != null -> "found"
+        rawSsid == null -> "null_or_access_error"
+        else -> "unknown_ssid"
+    }
+
+    private companion object {
+        const val TAG = "WifiNetworkDetector"
     }
 
     fun updateWifiNetworkFromCallback(network: Network, capabilities: NetworkCapabilities) {
@@ -167,10 +178,14 @@ class WifiNetworkDetector(private val context: Context) {
         // Wi-Fi connectivity is confirmed independently of whether Android reveals the SSID.
         if (!hasSsidPermission()) {
             val permissionNote = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                "متصل بـ Wi-Fi؛ امنح إذن «الأجهزة القريبة / Wi-Fi» ليتمكن التطبيق من قراءة اسم الشبكة دون إذن الموقع"
+                "إذن الأجهزة القريبة / Wi-Fi غير ممنوح. افتح إعدادات التطبيق ثم الأذونات واسمح بـ «الأجهزة القريبة»؛ لا تشغّل GPS."
             } else {
-                "متصل بـ Wi-Fi، لكن هذا الإصدار من Android يتطلب إذن الموقع لتحديد اسم الشبكة (SSID)"
+                "هذا الإصدار من Android يحتاج إذن الموقع لقراءة اسم Wi-Fi. قد لا يكشف النظام الاسم إذا كانت خدمات الموقع متوقفة."
             }
+            Log.w(
+                TAG,
+                "SSID lookup skipped: api=${Build.VERSION.SDK_INT}, nearbyPermission=${Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && hasSsidPermission()}, locationPermission=${hasLocationPermission()}, locationServices=${isLocationServiceEnabled()}"
+            )
             return WifiConnectionState(
                 isConnected = true,
                 ssid = null,
@@ -180,41 +195,50 @@ class WifiNetworkDetector(private val context: Context) {
         }
 
         var rawSsid: String? = null
+        var managerSsid: String? = null
+        var capabilitiesSsid: String? = null
+        var cachedSsid: String? = null
 
-        // Prefer WifiManager on Android 13+ because its SSID access path is governed by
-        // NEARBY_WIFI_DEVICES for apps that do not derive physical location. This avoids
-        // depending on location services or a location-sensitive NetworkCallback flag.
+        // Prefer WifiManager on Android 13+; never infer an SSID from unrelated network data.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             @Suppress("DEPRECATION")
-            rawSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+            managerSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+            rawSsid = managerSsid
         }
 
         if (normalizeSsid(rawSsid) == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val transportInfo = connectedWifi.capabilities.transportInfo
-            if (transportInfo is WifiInfo) rawSsid = transportInfo.ssid
+            capabilitiesSsid = (transportInfo as? WifiInfo)?.ssid
+            rawSsid = capabilitiesSsid
         }
 
-        // Compatibility fallback for earlier Android releases.
+        // Compatibility fallback for earlier Android releases and device-specific WifiManager behavior.
         if (normalizeSsid(rawSsid) == null) {
             @Suppress("DEPRECATION")
-            rawSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+            managerSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+            rawSsid = managerSsid
         }
 
         // Use the last confirmed SSID for this exact Network if direct reads are redacted.
         if (normalizeSsid(rawSsid) == null) {
-            rawSsid = callbackSsidFor(connectedWifi.network)
+            cachedSsid = callbackSsidFor(connectedWifi.network)
+            rawSsid = cachedSsid
         }
 
         val cleanSsid = normalizeSsid(rawSsid)
         return if (cleanSsid == null) {
-            val note = if (
-                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU &&
-                !isLocationServiceEnabled()
-            ) {
-                "متصل بـ Wi-Fi؛ هذا الإصدار من Android يتطلب تشغيل خدمات الموقع كي يكشف اسم الشبكة"
-            } else {
-                "متصل بـ Wi-Fi، لكن النظام لم يكشف اسم الشبكة باستخدام الصلاحيات الحالية؛ سيستمر تسجيل الاستهلاك مؤقتًا تحت اسم Wi-Fi عام"
+            val note = when {
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && !isLocationServiceEnabled() ->
+                    "Android API ${Build.VERSION.SDK_INT}: خدمات الموقع متوقفة، وقد يمنع ذلك النظام من كشف اسم Wi-Fi. لا يمكن ضمان قراءة الاسم على هذا الإصدار مع إيقافها."
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                    "Android API ${Build.VERSION.SDK_INT}: إذن الأجهزة القريبة / Wi-Fi ممنوح، لكن النظام لم يُرجع اسم الشبكة. التشخيص: WifiManager=${ssidReadStatus(managerSsid)}، NetworkCapabilities=${ssidReadStatus(capabilitiesSsid)}، ذاكرة الاتصال=${ssidReadStatus(cachedSsid)}. لم يُستخدم اسم مخمّن حتى لا يُنسب الاستهلاك إلى شبكة خاطئة."
+                else ->
+                    "متصل بـ Wi-Fi، لكن النظام لم يكشف اسم الشبكة باستخدام الصلاحيات الحالية؛ سيُسجّل الاستهلاك مؤقتًا تحت Wi-Fi عام."
             }
+            Log.w(
+                TAG,
+                "SSID unresolved: api=${Build.VERSION.SDK_INT}, nearbyPermission=${hasSsidPermission() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU}, locationPermission=${hasLocationPermission()}, locationServices=${isLocationServiceEnabled()}, wifiManager=${ssidReadStatus(managerSsid)}, networkCapabilities=${ssidReadStatus(capabilitiesSsid)}, callbackCache=${ssidReadStatus(cachedSsid)}"
+            )
             WifiConnectionState(
                 isConnected = true,
                 ssid = null,
