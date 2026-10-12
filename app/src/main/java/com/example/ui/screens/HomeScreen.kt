@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,14 +36,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,8 +60,7 @@ fun HomeScreen(
     uiState: MainUiState,
     onNavigate: (Screen) -> Unit,
     onRefreshSnapshot: () -> Unit,
-    onRequestPermissions: () -> Unit = {},
-    onAssignCurrentNetworkName: (String) -> Unit = {}
+    onRequestPermissions: () -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier
@@ -85,14 +78,6 @@ fun HomeScreen(
             )
         }
 
-        if (uiState.isWifiConnected && !uiState.isSsidConfirmed) {
-            item {
-                ManualNetworkNamingCard(
-                    uiState = uiState,
-                    onAssignCurrentNetworkName = onAssignCurrentNetworkName
-                )
-            }
-        }
 
         // بطاقة استهلاك اليوم (تنزيل، رفع، إجمالي)
         item {
@@ -252,7 +237,7 @@ fun CurrentStatusCard(
                         text = when {
                             !uiState.isWifiConnected -> "غير متصل بـ Wi-Fi"
                             uiState.isSsidConfirmed && !uiState.currentWifiSsid.isNullOrBlank() -> uiState.currentWifiSsid
-                            else -> uiState.activeManualNetworkName ?: "Wi-Fi عام (اسم الشبكة غير متاح)"
+                            else -> "Wi-Fi عام (اسم الشبكة غير متاح)"
                         },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
@@ -295,7 +280,11 @@ fun CurrentStatusCard(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "اسم الشبكة غير متاح تلقائيًا؛ يمكنك تسميتها يدويًا أسفل هذه البطاقة",
+                                text = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                    "لم يُرجع النظام اسم الشبكة. تأكد من منح إذن الأجهزة القريبة (Wi-Fi)؛ لا حاجة لتشغيل GPS."
+                                } else {
+                                    "لم يُرجع النظام اسم الشبكة. هذا الإصدار من Android قد يتطلب إذن الموقع وخدمات الموقع."
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 fontSize = 11.sp
@@ -305,7 +294,14 @@ fun CurrentStatusCard(
                             onClick = onRequestPermissions,
                             modifier = Modifier.testTag("grant_permission_btn")
                         ) {
-                            Text("منح الصلاحية", fontSize = 11.sp)
+                            Text(
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                    "إذن Wi-Fi"
+                                } else {
+                                    "صلاحية الموقع"
+                                },
+                                fontSize = 11.sp
+                            )
                         }
                     }
                 }
@@ -369,101 +365,6 @@ fun CurrentStatusCard(
     }
 }
 
-
-@Composable
-private fun ManualNetworkNamingCard(
-    uiState: MainUiState,
-    onAssignCurrentNetworkName: (String) -> Unit
-) {
-    var networkName by rememberSaveable(uiState.activeManualNetworkName) {
-        mutableStateOf(uiState.activeManualNetworkName.orEmpty())
-    }
-    val savedNames = uiState.networkSummaries
-        .map { it.ssid }
-        .filter { it.isNotBlank() && it != "Wi-Fi عام" && it != "لا توجد جلسة مكتملة بعد" }
-        .distinct()
-        .sorted()
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("manual_network_naming_card"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = CardDefaults.outlinedCardBorder()
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = if (uiState.activeManualNetworkName != null) {
-                    "اسم الجلسة الحالية: ${uiState.activeManualNetworkName}"
-                } else {
-                    "سمِّ شبكة Wi-Fi الحالية"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "لم يكشف Android اسم الشبكة تلقائيًا. اكتب اسمًا أو اختر اسمًا محفوظًا لربط الاستهلاك بهذه الجلسة فقط. إذا لم يمكن تمييز الاتصال في المرة القادمة، سيُطلب منك الاختيار مجددًا.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            OutlinedTextField(
-                value = networkName,
-                onValueChange = { networkName = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("manual_network_name_input"),
-                label = { Text("اسم الشبكة") },
-                placeholder = { Text("مثال: شبكة المنزل") },
-                singleLine = true
-            )
-
-            Button(
-                onClick = { onAssignCurrentNetworkName(networkName.trim()) },
-                enabled = networkName.trim().isNotBlank() && !uiState.isRecording,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("save_manual_network_name_button"),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    if (uiState.activeManualNetworkName != null) {
-                        "تحديث اسم هذه الجلسة"
-                    } else {
-                        "حفظ الاسم لهذه الجلسة"
-                    }
-                )
-            }
-
-            if (savedNames.isNotEmpty()) {
-                Text(
-                    text = "أسماء محفوظة — اضغط لاستخدامها لهذه الجلسة",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(savedNames, key = { it }) { savedName ->
-                        OutlinedButton(
-                            onClick = {
-                                networkName = savedName
-                                onAssignCurrentNetworkName(savedName)
-                            }
-                        ) {
-                            Text(savedName)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 fun TodayConsumptionCard(uiState: MainUiState) {
