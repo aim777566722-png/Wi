@@ -280,7 +280,7 @@ fun CurrentStatusCard(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                text = uiState.connectionNotes ?: if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                                     "لم يُرجع النظام اسم الشبكة. تأكد من منح إذن الأجهزة القريبة (Wi-Fi)؛ لا حاجة لتشغيل GPS."
                                 } else {
                                     "لم يُرجع النظام اسم الشبكة. هذا الإصدار من Android قد يتطلب إذن الموقع وخدمات الموقع."
