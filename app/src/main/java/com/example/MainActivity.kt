@@ -76,6 +76,22 @@ class MainActivity : ComponentActivity() {
                         viewModel.recordCurrentSnapshot(isAutomatic = true)
                     }
 
+                    // Ask once for nearby Wi-Fi permission on Android 13+ so SSID
+                    // recognition can work without enabling GPS or granting location.
+                    LaunchedEffect(Unit) {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                            val prefs = app.getSharedPreferences("wifi_permission_prompt", MODE_PRIVATE)
+                            val nearbyGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                                app,
+                                Manifest.permission.NEARBY_WIFI_DEVICES
+                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                            if (!nearbyGranted && !prefs.getBoolean("nearby_wifi_requested_once", false)) {
+                                prefs.edit().putBoolean("nearby_wifi_requested_once", true).apply()
+                                permissionsLauncher.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES))
+                            }
+                        }
+                    }
+
                     // عرض رسائل التنبيه للمستخدم
                     LaunchedEffect(uiState.feedbackMessage) {
                         uiState.feedbackMessage?.let { msg ->
