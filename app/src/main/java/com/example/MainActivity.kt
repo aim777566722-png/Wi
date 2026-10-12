@@ -117,9 +117,6 @@ class MainActivity : ComponentActivity() {
                                 permsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
                             }
                             permissionsLauncher.launch(permsToRequest.toTypedArray())
-                        },
-                        onAssignCurrentNetworkName = { name ->
-                            viewModel.assignCurrentNetworkName(name)
                         }
                     )
                 }
@@ -137,8 +134,7 @@ fun MainAppScaffold(
     onRefreshSnapshot: () -> Unit,
     onSelectNetwork: (String) -> Unit,
     onPeriodSelected: (com.example.data.model.FilterPeriod) -> Unit,
-    onRequestLocationPermission: () -> Unit,
-    onAssignCurrentNetworkName: (String) -> Unit
+    onRequestLocationPermission: () -> Unit
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -201,8 +197,7 @@ fun MainAppScaffold(
                         uiState = uiState,
                         onNavigate = onNavigate,
                         onRefreshSnapshot = onRefreshSnapshot,
-                        onRequestPermissions = onRequestLocationPermission,
-                        onAssignCurrentNetworkName = onAssignCurrentNetworkName
+                        onRequestPermissions = onRequestLocationPermission
                     )
                 }
                 is Screen.Networks -> {
