@@ -16,7 +16,6 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.data.model.RawTrafficReading
 import com.example.data.model.WifiConnectionState
-import java.net.Inet4Address
 import java.security.MessageDigest
 
 class WifiNetworkDetector(private val context: Context) {
@@ -185,20 +184,18 @@ class WifiNetworkDetector(private val context: Context) {
             }
             .distinct()
             .sorted()
-        val localAddresses = linkProperties.linkAddresses
-            .filter { it.address is Inet4Address }
-            .map { "${it.address.hostAddress}/${it.prefixLength}" }
-            .sorted()
         val dnsServers = linkProperties.dnsServers
             .mapNotNull { it.hostAddress?.substringBefore("%") }
             .distinct()
             .sorted()
 
-        if (gateways.isEmpty() && localAddresses.isEmpty() && dnsServers.isEmpty()) return null
+        // Do not include this phone's DHCP address: it can change while the
+        // phone remains on the same Wi-Fi network and would create a new label.
+        // Only use network-level routing/DNS data; if unavailable, avoid guessing.
+        if (gateways.isEmpty() && dnsServers.isEmpty()) return null
 
         val fingerprintInput = listOf(
             "gateways=${gateways.joinToString(",")}",
-            "addresses=${localAddresses.joinToString(",")}",
             "dns=${dnsServers.joinToString(",")}"
         ).joinToString("|")
         val digest = MessageDigest.getInstance("SHA-256")
