@@ -233,7 +233,7 @@ class WifiNetworkDetector(private val context: Context) {
                 "SSID lookup skipped: api=${Build.VERSION.SDK_INT}, nearbyPermission=${Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && hasSsidPermission()}, locationPermission=${hasLocationPermission()}, locationServices=${isLocationServiceEnabled()}"
             )
             val note = if (automaticNetworkLabel != null) {
-                "$permissionNote اسم الشبكة الحقيقي غير متاح؛ سيجمع التطبيق القراءات تحت معرّف محلي $automaticNetworkLabel، وهذا المعرّف ليس اسم SSID."
+                "$permissionNote اسم الشبكة الحقيقي غير متاح؛ سيجمع التطبيق القراءات تحت معرّف محلي $automaticNetworkLabel، وهذا المعرّف ليس اسم SSID وقد يتكرر إذا تشابهت إعدادات شبكتين."
             } else permissionNote
             return WifiConnectionState(
                 isConnected = true,
@@ -289,7 +289,7 @@ class WifiNetworkDetector(private val context: Context) {
                 "SSID unresolved: api=${Build.VERSION.SDK_INT}, nearbyPermission=${hasSsidPermission() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU}, locationPermission=${hasLocationPermission()}, locationServices=${isLocationServiceEnabled()}, wifiManager=${ssidReadStatus(managerSsid)}, networkCapabilities=${ssidReadStatus(capabilitiesSsid)}, callbackCache=${ssidReadStatus(cachedSsid)}"
             )
             val automaticNote = if (automaticNetworkLabel != null) {
-                "$note سيُستخدم $automaticNetworkLabel لتجميع الجلسات دون GPS؛ هذا معرّف محلي وليس اسم الشبكة الحقيقي، وقد يتغير إذا تغيرت إعدادات الشبكة المحلية."
+                "$note سيُستخدم $automaticNetworkLabel لتجميع الجلسات دون GPS؛ هذا معرّف محلي وليس اسم الشبكة الحقيقي؛ قد يتغير مع إعدادات الشبكة أو يتكرر إذا تشابهت إعدادات شبكتين."
             } else {
                 "$note لم يتوفر معرّف محلي يمكن الاعتماد عليه."
             }
