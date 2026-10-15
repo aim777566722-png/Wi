@@ -111,7 +111,7 @@ object TrafficDeltaCalculator {
         val deltaRx = currentReading.rawRxBytes - previousSnapshot.rawRxBytes
         val deltaTx = currentReading.rawTxBytes - previousSnapshot.rawTxBytes
 
-        // إذا كان اسم الشبكة غير مؤكد لغياب الصلاحية، يتم توثيق الحالة كـ UNKNOWN_SSID
+        // إذا كان اسم SSID غير مؤكد (حتى مع وجود صلاحية)، يتم توثيق الحالة كـ UNKNOWN_SSID
         val status = if (!currentReading.isSsidConfirmed || currentReading.ssid == null) {
             ReadingStatus.UNKNOWN_SSID
         } else {
