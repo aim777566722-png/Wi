@@ -229,14 +229,18 @@ fun CurrentStatusCard(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "الشبكة الحالية:",
+                        text = if (!uiState.isSsidConfirmed && !uiState.currentWifiSsid.isNullOrBlank()) {
+                            "معرّف محلي للشبكة (ليس الاسم الحقيقي):"
+                        } else {
+                            "الشبكة الحالية:"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                     )
                     Text(
                         text = when {
                             !uiState.isWifiConnected -> "غير متصل بـ Wi-Fi"
-                            uiState.isSsidConfirmed && !uiState.currentWifiSsid.isNullOrBlank() -> uiState.currentWifiSsid
+                            !uiState.currentWifiSsid.isNullOrBlank() -> uiState.currentWifiSsid
                             else -> "Wi-Fi عام (اسم الشبكة غير متاح)"
                         },
                         style = MaterialTheme.typography.titleMedium,
@@ -295,10 +299,10 @@ fun CurrentStatusCard(
                             modifier = Modifier.testTag("grant_permission_btn")
                         ) {
                             Text(
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                                    "إذن Wi-Fi"
-                                } else {
-                                    "صلاحية الموقع"
+                                when {
+                                    uiState.hasSsidPermission -> "إعادة المحاولة"
+                                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU -> "إذن Wi-Fi"
+                                    else -> "صلاحية الموقع"
                                 },
                                 fontSize = 11.sp
                             )
