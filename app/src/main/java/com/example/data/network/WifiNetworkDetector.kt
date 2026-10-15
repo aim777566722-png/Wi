@@ -16,6 +16,8 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.data.model.RawTrafficReading
 import com.example.data.model.WifiConnectionState
+import java.net.Inet4Address
+import java.security.MessageDigest
 
 class WifiNetworkDetector(private val context: Context) {
 
@@ -164,6 +166,47 @@ class WifiNetworkDetector(private val context: Context) {
         }
     }
 
+
+    /**
+     * Creates a repeatable local-network label when Android hides the real SSID.
+     * This is only a fingerprint for grouping sessions, not the Wi-Fi network's name.
+     * It uses local route/address/DNS metadata, not GPS or SSID/BSSID.
+     */
+    private fun localNetworkLabel(network: Network): String? {
+        val cm = connectivityManager ?: return null
+        val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return null
+
+        val gateways = linkProperties.routes
+            .filter { it.isDefaultRoute }
+            .mapNotNull { route ->
+                route.gateway?.hostAddress?.substringBefore("%")?.takeIf {
+                    it.isNotBlank() && it != "0.0.0.0" && it != "::"
+                }
+            }
+            .distinct()
+            .sorted()
+        val localAddresses = linkProperties.linkAddresses
+            .filter { it.address is Inet4Address }
+            .map { "${it.address.hostAddress}/${it.prefixLength}" }
+            .sorted()
+        val dnsServers = linkProperties.dnsServers
+            .mapNotNull { it.hostAddress?.substringBefore("%") }
+            .distinct()
+            .sorted()
+
+        if (gateways.isEmpty() && localAddresses.isEmpty() && dnsServers.isEmpty()) return null
+
+        val fingerprintInput = listOf(
+            "gateways=${gateways.joinToString(",")}",
+            "addresses=${localAddresses.joinToString(",")}",
+            "dns=${dnsServers.joinToString(",")}"
+        ).joinToString("|")
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(fingerprintInput.toByteArray(Charsets.UTF_8))
+        val shortId = digest.take(5).joinToString("") { "%02X".format(it.toInt() and 0xFF) }
+        return "شبكة Wi-Fi تلقائية #$shortId"
+    }
+
     /**
      * فحص حالة اتصال Wi-Fi الحالي واستخراج SSID دون تخمين أو تضليل
      */
@@ -174,6 +217,9 @@ class WifiNetworkDetector(private val context: Context) {
             isSsidConfirmed = false,
             notes = "لم يعثر Android على اتصال Wi-Fi متاح؛ قد يكون الاتصال الحالي عبر شبكة أخرى أو أن حالة الشبكة لم تتحدث بعد"
         )
+
+        // Preserve a repeatable local identifier even when Android redacts the real SSID.
+        val automaticNetworkLabel = localNetworkLabel(connectedWifi.network)
 
         // Wi-Fi connectivity is confirmed independently of whether Android reveals the SSID.
         if (!hasSsidPermission()) {
@@ -186,11 +232,14 @@ class WifiNetworkDetector(private val context: Context) {
                 TAG,
                 "SSID lookup skipped: api=${Build.VERSION.SDK_INT}, nearbyPermission=${Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && hasSsidPermission()}, locationPermission=${hasLocationPermission()}, locationServices=${isLocationServiceEnabled()}"
             )
+            val note = if (automaticNetworkLabel != null) {
+                "$permissionNote اسم الشبكة الحقيقي غير متاح؛ سيجمع التطبيق القراءات تحت معرّف محلي $automaticNetworkLabel، وهذا المعرّف ليس اسم SSID."
+            } else permissionNote
             return WifiConnectionState(
                 isConnected = true,
-                ssid = null,
+                ssid = automaticNetworkLabel,
                 isSsidConfirmed = false,
-                notes = permissionNote
+                notes = note
             )
         }
 
@@ -239,11 +288,16 @@ class WifiNetworkDetector(private val context: Context) {
                 TAG,
                 "SSID unresolved: api=${Build.VERSION.SDK_INT}, nearbyPermission=${hasSsidPermission() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU}, locationPermission=${hasLocationPermission()}, locationServices=${isLocationServiceEnabled()}, wifiManager=${ssidReadStatus(managerSsid)}, networkCapabilities=${ssidReadStatus(capabilitiesSsid)}, callbackCache=${ssidReadStatus(cachedSsid)}"
             )
+            val automaticNote = if (automaticNetworkLabel != null) {
+                "$note سيُستخدم $automaticNetworkLabel لتجميع الجلسات دون GPS؛ هذا معرّف محلي وليس اسم الشبكة الحقيقي، وقد يتغير إذا تغيرت إعدادات الشبكة المحلية."
+            } else {
+                "$note لم يتوفر معرّف محلي يمكن الاعتماد عليه."
+            }
             WifiConnectionState(
                 isConnected = true,
-                ssid = null,
+                ssid = automaticNetworkLabel,
                 isSsidConfirmed = false,
-                notes = note
+                notes = automaticNote
             )
         } else {
             WifiConnectionState(
