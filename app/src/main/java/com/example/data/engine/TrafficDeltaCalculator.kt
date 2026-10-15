@@ -14,7 +14,7 @@ import com.example.data.model.ReadingStatus
  * - العدادات التراكمية السابقة لضمان عدم احتساب كامل التراكم كاستهلاك جديد
  * - الانهيارات أو التراجعات الشاذة في عدادات النظام (Rollbacks)
  * - عدم تكرار احتساب القراءة نفسها (Duplicate readings / No change)
- * - غياب صلاحية الموقع وعدم تأكيد اسم الشبكة (Unknown SSID)
+ * - إخفاء النظام لاسم الشبكة وعدم تأكيد SSID (Unknown SSID)
  */
 object TrafficDeltaCalculator {
 
@@ -119,7 +119,7 @@ object TrafficDeltaCalculator {
         }
 
         val notes = if (status == ReadingStatus.UNKNOWN_SSID) {
-            "استهلاك Wi-Fi عام مسجل بدون تأكيد SSID لغياب صلاحية الموقع"
+            "اسم SSID الحقيقي غير متاح من Android؛ يُجمع الاستهلاك تحت المعرّف المحلي إن توفر، وليس تحت اسم شبكة مؤكد."
         } else null
 
         return ComputedDelta(
