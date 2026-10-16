@@ -152,6 +152,7 @@ fun HomeScreen(
             items(uiState.networkSummaries.take(3)) { summary ->
                 NetworkSummaryMiniItem(
                     summary = summary,
+                    displayName = uiState.customNetworkNames[summary.ssid] ?: summary.ssid,
                     onClick = { onNavigate(Screen.NetworkDetail(summary.ssid)) }
                 )
             }
@@ -240,7 +241,7 @@ fun CurrentStatusCard(
                     Text(
                         text = when {
                             !uiState.isWifiConnected -> "غير متصل بـ Wi-Fi"
-                            !uiState.currentWifiSsid.isNullOrBlank() -> uiState.currentWifiSsid
+                            !uiState.currentWifiSsid.isNullOrBlank() -> (uiState.customNetworkNames[uiState.currentWifiSsid] ?: uiState.currentWifiSsid)
                             else -> "Wi-Fi عام (اسم الشبكة غير متاح)"
                         },
                         style = MaterialTheme.typography.titleMedium,
@@ -601,6 +602,7 @@ fun QuickNavigationRow(onNavigate: (Screen) -> Unit) {
 @Composable
 fun NetworkSummaryMiniItem(
     summary: NetworkSummary,
+    displayName: String = summary.ssid,
     onClick: () -> Unit
 ) {
     Card(
@@ -629,7 +631,7 @@ fun NetworkSummaryMiniItem(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = summary.ssid,
+                        text = displayName,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
