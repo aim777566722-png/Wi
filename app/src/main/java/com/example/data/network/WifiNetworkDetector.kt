@@ -12,9 +12,11 @@ import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.data.model.RawTrafficReading
 import com.example.data.model.WifiConnectionState
+import java.security.MessageDigest
 
 class WifiNetworkDetector(private val context: Context) {
 
@@ -38,10 +40,29 @@ class WifiNetworkDetector(private val context: Context) {
         }
     }
 
+    private fun ssidReadStatus(rawSsid: String?): String = when {
+        normalizeSsid(rawSsid) != null -> "found"
+        rawSsid == null -> "null_or_access_error"
+        else -> "unknown_ssid"
+    }
+
+    private companion object {
+        const val TAG = "WifiNetworkDetector"
+    }
+
     fun updateWifiNetworkFromCallback(network: Network, capabilities: NetworkCapabilities) {
         if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val ssid = normalizeSsid((capabilities.transportInfo as? WifiInfo)?.ssid) ?: return
+
+        // NetworkCapabilities may redact transportInfo in callbacks. On Android 13+
+        // the app uses NEARBY_WIFI_DEVICES rather than location permission, so also
+        // ask WifiManager for the currently associated network name.
+        val capabilitySsid = (capabilities.transportInfo as? WifiInfo)?.ssid
+        @Suppress("DEPRECATION")
+        val managerSsid = if (normalizeSsid(capabilitySsid) == null && hasSsidPermission()) {
+            runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+        } else null
+        val ssid = normalizeSsid(capabilitySsid) ?: normalizeSsid(managerSsid) ?: return
+
         synchronized(this) {
             callbackWifiNetwork = network
             callbackWifiSsid = ssid
@@ -72,10 +93,19 @@ class WifiNetworkDetector(private val context: Context) {
     }
 
     /**
-     * Reading SSID is location-sensitive on Android. NEARBY_WIFI_DEVICES alone
-     * does not guarantee that Android reveals the SSID from WifiInfo.
+     * Android 13+ provides NEARBY_WIFI_DEVICES for Wi-Fi access without deriving
+     * physical location. Older Android versions require location permission.
      */
-    fun hasSsidPermission(): Boolean = hasLocationPermission()
+    fun hasSsidPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.NEARBY_WIFI_DEVICES
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            hasLocationPermission()
+        }
+    }
 
     private data class ConnectedWifiNetwork(
         val network: android.net.Network,
@@ -135,6 +165,45 @@ class WifiNetworkDetector(private val context: Context) {
         }
     }
 
+
+    /**
+     * Creates a repeatable local-network label when Android hides the real SSID.
+     * This is only a fingerprint for grouping sessions, not the Wi-Fi network's name.
+     * It uses local route/address/DNS metadata, not GPS or SSID/BSSID.
+     */
+    private fun localNetworkLabel(network: Network): String? {
+        val cm = connectivityManager ?: return null
+        val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return null
+
+        val gateways = linkProperties.routes
+            .filter { it.isDefaultRoute }
+            .mapNotNull { route ->
+                route.gateway?.hostAddress?.substringBefore("%")?.takeIf {
+                    it.isNotBlank() && it != "0.0.0.0" && it != "::"
+                }
+            }
+            .distinct()
+            .sorted()
+        val dnsServers = linkProperties.dnsServers
+            .mapNotNull { it.hostAddress?.substringBefore("%") }
+            .distinct()
+            .sorted()
+
+        // Do not include this phone's DHCP address: it can change while the
+        // phone remains on the same Wi-Fi network and would create a new label.
+        // Only use network-level routing/DNS data; if unavailable, avoid guessing.
+        if (gateways.isEmpty() && dnsServers.isEmpty()) return null
+
+        val fingerprintInput = listOf(
+            "gateways=${gateways.joinToString(",")}",
+            "dns=${dnsServers.joinToString(",")}"
+        ).joinToString("|")
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(fingerprintInput.toByteArray(Charsets.UTF_8))
+        val shortId = digest.take(5).joinToString("") { "%02X".format(it.toInt() and 0xFF) }
+        return "شبكة Wi-Fi تلقائية #$shortId"
+    }
+
     /**
      * فحص حالة اتصال Wi-Fi الحالي واستخراج SSID دون تخمين أو تضليل
      */
@@ -146,44 +215,86 @@ class WifiNetworkDetector(private val context: Context) {
             notes = "لم يعثر Android على اتصال Wi-Fi متاح؛ قد يكون الاتصال الحالي عبر شبكة أخرى أو أن حالة الشبكة لم تتحدث بعد"
         )
 
+        // Preserve a repeatable local identifier even when Android redacts the real SSID.
+        val automaticNetworkLabel = localNetworkLabel(connectedWifi.network)
+
         // Wi-Fi connectivity is confirmed independently of whether Android reveals the SSID.
         if (!hasSsidPermission()) {
+            val permissionNote = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                "إذن الأجهزة القريبة / Wi-Fi غير ممنوح. افتح إعدادات التطبيق ثم الأذونات واسمح بـ «الأجهزة القريبة»؛ لا تشغّل GPS."
+            } else {
+                "هذا الإصدار من Android يحتاج إذن الموقع لقراءة اسم Wi-Fi. قد لا يكشف النظام الاسم إذا كانت خدمات الموقع متوقفة."
+            }
+            Log.w(
+                TAG,
+                "SSID lookup skipped: api=${Build.VERSION.SDK_INT}, nearbyPermission=${Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && hasSsidPermission()}, locationPermission=${hasLocationPermission()}, locationServices=${isLocationServiceEnabled()}"
+            )
+            val note = if (automaticNetworkLabel != null) {
+                "$permissionNote اسم الشبكة الحقيقي غير متاح؛ سيجمع التطبيق القراءات تحت معرّف محلي $automaticNetworkLabel، وهذا المعرّف ليس اسم SSID وقد يتكرر إذا تشابهت إعدادات شبكتين."
+            } else permissionNote
             return WifiConnectionState(
                 isConnected = true,
-                ssid = null,
+                ssid = automaticNetworkLabel,
                 isSsidConfirmed = false,
-                notes = "متصل بـ Wi-Fi، لكن يلزم منح صلاحية الموقع الدقيق وتشغيل خدمات الموقع لقراءة اسم الشبكة (SSID)"
+                notes = note
             )
         }
 
         var rawSsid: String? = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        var managerSsid: String? = null
+        var capabilitiesSsid: String? = null
+        var cachedSsid: String? = null
+
+        // Prefer WifiManager on Android 13+; never infer an SSID from unrelated network data.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            @Suppress("DEPRECATION")
+            managerSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+            rawSsid = managerSsid
+        }
+
+        if (normalizeSsid(rawSsid) == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val transportInfo = connectedWifi.capabilities.transportInfo
-            if (transportInfo is WifiInfo) rawSsid = transportInfo.ssid
+            capabilitiesSsid = (transportInfo as? WifiInfo)?.ssid
+            rawSsid = capabilitiesSsid
         }
 
-        // Use WifiManager as a compatibility fallback after checking location permission.
+        // Compatibility fallback for earlier Android releases and device-specific WifiManager behavior.
         if (normalizeSsid(rawSsid) == null) {
-            rawSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+            @Suppress("DEPRECATION")
+            managerSsid = runCatching { wifiManager?.connectionInfo?.ssid }.getOrNull()
+            rawSsid = managerSsid
         }
 
-        // A callback registered with FLAG_INCLUDE_LOCATION_INFO can expose the SSID
-        // even when direct NetworkCapabilities reads are redacted in the background.
+        // Use the last confirmed SSID for this exact Network if direct reads are redacted.
         if (normalizeSsid(rawSsid) == null) {
-            rawSsid = callbackSsidFor(connectedWifi.network)
+            cachedSsid = callbackSsidFor(connectedWifi.network)
+            rawSsid = cachedSsid
         }
 
         val cleanSsid = normalizeSsid(rawSsid)
         return if (cleanSsid == null) {
+            val note = when {
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && !isLocationServiceEnabled() ->
+                    "Android API ${Build.VERSION.SDK_INT}: خدمات الموقع متوقفة، وقد يمنع ذلك النظام من كشف اسم Wi-Fi. لا يمكن ضمان قراءة الاسم على هذا الإصدار مع إيقافها."
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                    "Android API ${Build.VERSION.SDK_INT}: إذن الأجهزة القريبة / Wi-Fi ممنوح، لكن النظام لم يُرجع اسم الشبكة. التشخيص: WifiManager=${ssidReadStatus(managerSsid)}، NetworkCapabilities=${ssidReadStatus(capabilitiesSsid)}، ذاكرة الاتصال=${ssidReadStatus(cachedSsid)}. لم يُستخدم اسم مخمّن حتى لا يُنسب الاستهلاك إلى شبكة خاطئة."
+                else ->
+                    "متصل بـ Wi-Fi، لكن النظام لم يكشف اسم الشبكة باستخدام الصلاحيات الحالية؛ سيُسجّل الاستهلاك مؤقتًا تحت Wi-Fi عام."
+            }
+            Log.w(
+                TAG,
+                "SSID unresolved: api=${Build.VERSION.SDK_INT}, nearbyPermission=${hasSsidPermission() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU}, locationPermission=${hasLocationPermission()}, locationServices=${isLocationServiceEnabled()}, wifiManager=${ssidReadStatus(managerSsid)}, networkCapabilities=${ssidReadStatus(capabilitiesSsid)}, callbackCache=${ssidReadStatus(cachedSsid)}"
+            )
+            val automaticNote = if (automaticNetworkLabel != null) {
+                "$note سيُستخدم $automaticNetworkLabel لتجميع الجلسات دون GPS؛ هذا معرّف محلي وليس اسم الشبكة الحقيقي؛ قد يتغير مع إعدادات الشبكة أو يتكرر إذا تشابهت إعدادات شبكتين."
+            } else {
+                "$note لم يتوفر معرّف محلي يمكن الاعتماد عليه."
+            }
             WifiConnectionState(
                 isConnected = true,
-                ssid = null,
+                ssid = automaticNetworkLabel,
                 isSsidConfirmed = false,
-                notes = if (!isLocationServiceEnabled()) {
-                    "متصل بـ Wi-Fi؛ فعّل خدمات الموقع في إعدادات الهاتف لكي يكشف Android اسم الشبكة"
-                } else {
-                    "متصل بـ Wi-Fi، لكن Android لم يكشف اسم الشبكة؛ سيستمر تسجيل الاستهلاك تحت اسم Wi-Fi عام"
-                }
+                notes = automaticNote
             )
         } else {
             WifiConnectionState(

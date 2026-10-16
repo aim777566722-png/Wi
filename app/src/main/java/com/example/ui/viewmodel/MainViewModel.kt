@@ -48,6 +48,7 @@ data class MainUiState(
     val allTimeRxBytes: Long = 0L,
     val allTimeTxBytes: Long = 0L,
     val networkSummaries: List<NetworkSummary> = emptyList(),
+    val customNetworkNames: Map<String, String> = emptyMap(),
     val recentSnapshots: List<DataUsageSnapshotEntity> = emptyList(),
     val selectedNetworkSsid: String? = null,
     val selectedPeriod: FilterPeriod = FilterPeriod.TODAY,
@@ -76,6 +77,7 @@ class MainViewModel(
 
     init {
         loadTechnicalConstraints()
+        loadCustomNetworkNames()
         checkWifiStatus()
         observeData()
         observeServiceState()
@@ -115,8 +117,8 @@ class MainViewModel(
             ),
             TechnicalConstraintInfo(
                 title = "صلاحيات Android لقراءة اسم الشبكة (SSID)",
-                description = "على Android 13+ يجرّب التطبيق صلاحية الأجهزة القريبة لتجنب طلب الموقع، بينما قد تتطلب الإصدارات الأقدم صلاحية الموقع وتشغيل خدمات الموقع. قد تحجب بعض الأجهزة اسم الشبكة رغم منح الصلاحية.",
-                recommendation = "إذا لم يُرجع النظام الاسم، يسجل التطبيق الشبكة باسم عام بدلاً من تخمين اسم غير مؤكد."
+                description = "على Android 13+ يستخدم التطبيق إذن الأجهزة القريبة بدل الموقع، لكن بعض إصدارات النظام أو الشركات المصنّعة قد تحجب SSID حتى مع الإذن. عندها قد تتوفر معلومات الشبكة المحلية فقط.",
+                recommendation = "إذا حجب النظام اسم SSID، ينشئ التطبيق عند توفر البيانات معرّفًا محليًا من معلومات البوابة وعناوين الشبكة وDNS لتجميع الجلسات دون GPS. المعرّف ليس اسم الشبكة الحقيقي وقد يتغير أو يتكرر بين شبكات تستخدم الإعدادات نفسها."
             ),
             TechnicalConstraintInfo(
                 title = "تسجيل فجوة بيانات عند الانقطاع والعودة",
@@ -215,6 +217,11 @@ class MainViewModel(
         }
     }
 
+    /**
+     * Associates an unknown current Wi-Fi session with a user-selected saved name.
+     * The name applies only to this active connection; after the Wi-Fi connection is
+     * lost, the service expires the manual assignment so it cannot leak to another SSID.
+     */
     fun recordCurrentSnapshot(isAutomatic: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRecording = true) }
@@ -326,6 +333,34 @@ class MainViewModel(
         }
     }
 
+    private fun loadCustomNetworkNames() {
+        val names = appContext.getSharedPreferences("wifi_custom_network_names", Context.MODE_PRIVATE)
+            .all
+            .filterKeys { it.startsWith("name:") }
+            .mapNotNull { (key, value) ->
+                val name = value as? String
+                val networkKey = key.removePrefix("name:")
+                if (networkKey.isNotBlank() && !name.isNullOrBlank()) networkKey to name else null
+            }.toMap()
+        _uiState.update { it.copy(customNetworkNames = names) }
+    }
+
+    /** Save a display label without changing the internal key or existing usage history. */
+    fun renameNetwork(internalNetworkKey: String, requestedName: String) {
+        val name = requestedName.trim()
+        if (internalNetworkKey.isBlank() || name.isBlank()) {
+            _uiState.update { it.copy(feedbackMessage = "اكتب اسمًا صالحًا للشبكة") }
+            return
+        }
+        appContext.getSharedPreferences("wifi_custom_network_names", Context.MODE_PRIVATE)
+            .edit().putString("name:$internalNetworkKey", name).apply()
+        _uiState.update {
+            it.copy(
+                customNetworkNames = it.customNetworkNames + (internalNetworkKey to name),
+                feedbackMessage = "تم حفظ اسم الشبكة «$name» دون تغيير سجلات الاستهلاك"
+            )
+        }
+    }
     fun clearFeedbackMessage() {
         _uiState.update { it.copy(feedbackMessage = null) }
     }

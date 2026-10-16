@@ -78,6 +78,7 @@ fun HomeScreen(
             )
         }
 
+
         // بطاقة استهلاك اليوم (تنزيل، رفع، إجمالي)
         item {
             TodayConsumptionCard(uiState = uiState)
@@ -151,6 +152,7 @@ fun HomeScreen(
             items(uiState.networkSummaries.take(3)) { summary ->
                 NetworkSummaryMiniItem(
                     summary = summary,
+                    displayName = uiState.customNetworkNames[summary.ssid] ?: summary.ssid,
                     onClick = { onNavigate(Screen.NetworkDetail(summary.ssid)) }
                 )
             }
@@ -228,14 +230,18 @@ fun CurrentStatusCard(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "الشبكة الحالية:",
+                        text = if (!uiState.isSsidConfirmed && !uiState.currentWifiSsid.isNullOrBlank()) {
+                            "معرّف محلي للشبكة (ليس الاسم الحقيقي):"
+                        } else {
+                            "الشبكة الحالية:"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                     )
                     Text(
                         text = when {
                             !uiState.isWifiConnected -> "غير متصل بـ Wi-Fi"
-                            uiState.isSsidConfirmed && !uiState.currentWifiSsid.isNullOrBlank() -> uiState.currentWifiSsid
+                            !uiState.currentWifiSsid.isNullOrBlank() -> (uiState.customNetworkNames[uiState.currentWifiSsid] ?: uiState.currentWifiSsid)
                             else -> "Wi-Fi عام (اسم الشبكة غير متاح)"
                         },
                         style = MaterialTheme.typography.titleMedium,
@@ -279,7 +285,11 @@ fun CurrentStatusCard(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "تعذر قراءة اسم الشبكة؛ تحقق من الصلاحية المناسبة لإصدار Android",
+                                text = uiState.connectionNotes ?: if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                    "لم يُرجع النظام اسم الشبكة. تأكد من منح إذن الأجهزة القريبة (Wi-Fi)؛ لا حاجة لتشغيل GPS."
+                                } else {
+                                    "لم يُرجع النظام اسم الشبكة. هذا الإصدار من Android قد يتطلب إذن الموقع وخدمات الموقع."
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 fontSize = 11.sp
@@ -289,7 +299,14 @@ fun CurrentStatusCard(
                             onClick = onRequestPermissions,
                             modifier = Modifier.testTag("grant_permission_btn")
                         ) {
-                            Text("منح الصلاحية", fontSize = 11.sp)
+                            Text(
+                                when {
+                                    uiState.hasSsidPermission -> "إعادة المحاولة"
+                                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU -> "إذن Wi-Fi"
+                                    else -> "صلاحية الموقع"
+                                },
+                                fontSize = 11.sp
+                            )
                         }
                     }
                 }
@@ -352,6 +369,7 @@ fun CurrentStatusCard(
         }
     }
 }
+
 
 @Composable
 fun TodayConsumptionCard(uiState: MainUiState) {
@@ -584,6 +602,7 @@ fun QuickNavigationRow(onNavigate: (Screen) -> Unit) {
 @Composable
 fun NetworkSummaryMiniItem(
     summary: NetworkSummary,
+    displayName: String = summary.ssid,
     onClick: () -> Unit
 ) {
     Card(
@@ -612,7 +631,7 @@ fun NetworkSummaryMiniItem(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = summary.ssid,
+                        text = displayName,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )

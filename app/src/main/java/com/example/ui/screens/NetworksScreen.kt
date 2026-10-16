@@ -21,14 +21,21 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiFind
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -41,7 +48,8 @@ import com.example.ui.viewmodel.MainUiState
 @Composable
 fun NetworksScreen(
     uiState: MainUiState,
-    onSelectNetwork: (String) -> Unit
+    onSelectNetwork: (String) -> Unit,
+    onRenameNetwork: (String, String) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -102,7 +110,9 @@ fun NetworksScreen(
                     NetworkCardItem(
                         summary = summary,
                         isCurrentlyConnected = summary.ssid == uiState.currentWifiSsid,
-                        onClick = { onSelectNetwork(summary.ssid) }
+                        displayName = uiState.customNetworkNames[summary.ssid] ?: summary.ssid,
+                        onClick = { onSelectNetwork(summary.ssid) },
+                        onRename = { name -> onRenameNetwork(summary.ssid, name) }
                     )
                 }
             }
@@ -114,8 +124,46 @@ fun NetworksScreen(
 fun NetworkCardItem(
     summary: NetworkSummary,
     isCurrentlyConnected: Boolean,
-    onClick: () -> Unit
+    displayName: String = summary.ssid,
+    onClick: () -> Unit,
+    onRename: (String) -> Unit = {}
 ) {
+    var showRenameDialog by remember(summary.ssid) { mutableStateOf(false) }
+    var editedName by remember(summary.ssid, displayName) { mutableStateOf(displayName) }
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text("تعديل اسم الشبكة") },
+            text = {
+                Column {
+                    Text("سيُستخدم الاسم داخل التطبيق فقط، وستبقى سجلات الاستهلاك كما هي.")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = editedName,
+                        onValueChange = { editedName = it },
+                        label = { Text("اسم الشبكة") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val cleanName = editedName.trim()
+                        if (cleanName.isNotEmpty()) {
+                            onRename(cleanName)
+                            showRenameDialog = false
+                        }
+                    },
+                    enabled = editedName.trim().isNotEmpty()
+                ) { Text("حفظ") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) { Text("إلغاء") }
+            }
+        )
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -159,7 +207,7 @@ fun NetworkCardItem(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = summary.ssid,
+                            text = displayName,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -188,7 +236,17 @@ fun NetworkCardItem(
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            TextButton(
+                onClick = {
+                    editedName = displayName
+                    showRenameDialog = true
+                },
+                modifier = Modifier.testTag("rename_network_${summary.ssid}")
+            ) {
+                Text("تعديل اسم الشبكة")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
             Spacer(modifier = Modifier.height(12.dp))
 
