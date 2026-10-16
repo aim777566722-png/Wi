@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
                         onNavigate = { screen -> viewModel.navigateTo(screen) },
                         onRefreshSnapshot = { viewModel.recordCurrentSnapshot(isAutomatic = false) },
                         onSelectNetwork = { ssid -> viewModel.selectNetwork(ssid); viewModel.navigateTo(Screen.NetworkDetail(ssid)) },
+                        onRenameNetwork = { ssid, name -> viewModel.renameNetwork(ssid, name) },
                         onPeriodSelected = { period -> viewModel.setFilterPeriod(period) },
                         onRequestLocationPermission = {
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -165,6 +166,7 @@ fun MainAppScaffold(
     onNavigate: (Screen) -> Unit,
     onRefreshSnapshot: () -> Unit,
     onSelectNetwork: (String) -> Unit,
+    onRenameNetwork: (String, String) -> Unit,
     onPeriodSelected: (com.example.data.model.FilterPeriod) -> Unit,
     onRequestLocationPermission: () -> Unit
 ) {
@@ -235,7 +237,8 @@ fun MainAppScaffold(
                 is Screen.Networks -> {
                     NetworksScreen(
                         uiState = uiState,
-                        onSelectNetwork = onSelectNetwork
+                        onSelectNetwork = onSelectNetwork,
+                        onRenameNetwork = onRenameNetwork
                     )
                 }
                 is Screen.NetworkDetail -> {
